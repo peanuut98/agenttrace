@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { DEV_MODE } from "@/lib/dev-mode";
 import { LoginForm } from "./login-form";
 import {
   Card,
@@ -10,17 +11,22 @@ import {
 } from "@/components/ui/card";
 
 type LoginPageProps = {
-  searchParams: Promise<{ next?: string }>;
+  searchParams: Promise<{ next?: string; error?: string }>;
 };
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
+  const { next, error } = await searchParams;
+  const redirectTo = next && next.startsWith("/") ? next : "/dashboard";
+
+  // In Dev Mode auth is bypassed entirely — go straight to the dashboard.
+  if (DEV_MODE) {
+    redirect(redirectTo);
+  }
+
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  const { next } = await searchParams;
-  const redirectTo = next && next.startsWith("/") ? next : "/dashboard";
 
   if (user) {
     redirect(redirectTo);
@@ -37,6 +43,14 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {error ? (
+            <p
+              role="alert"
+              className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+            >
+              {error}
+            </p>
+          ) : null}
           <LoginForm redirectTo={redirectTo} />
         </CardContent>
       </Card>

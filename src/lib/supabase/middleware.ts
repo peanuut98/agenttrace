@@ -1,9 +1,18 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { DEV_MODE } from "@/lib/dev-mode";
 
-const PROTECTED_PREFIXES = ["/dashboard", "/projects"];
+const PROTECTED_PREFIXES = ["/dashboard", "/projects", "/runs"];
 
 export async function updateSession(request: NextRequest) {
+  // Dev Mode: bypass auth entirely. We still pass the request through so
+  // Next.js can render the page; the protected pages themselves are responsible
+  // for sourcing data from the storage adapter (which uses localStorage in
+  // Dev Mode).
+  if (DEV_MODE) {
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(

@@ -26,10 +26,40 @@ AgentTrace is an execution-trace and audit-receipt platform built for Web3 AI Ag
 - Real email/password sign-in **and** sign-up on `/login`, with tab toggle, loading state, and error display.
 - Sign-out button in the navbar (only shown when signed in; shows the user's email).
 - `middleware.ts` refreshes the Supabase session on every request and redirects unauthenticated visitors away from `/dashboard` and `/projects/*`.
-- `projects` table in Postgres with full Row Level Security — every SELECT/INSERT/UPDATE/DELETE is gated on `auth.uid() = user_id`.
-- `/dashboard` reads the current user's projects, shows an empty state when there are none, and renders `ProjectCard`s otherwise.
-- `/projects/new` creates a project (writes `user_id = auth.uid()` automatically thanks to RLS + the form passing the current user id).
-- `/projects/[id]` shows project detail and a placeholder Agent Runs section with a disabled "Create Agent run" button.
+- `/auth/callback` route handler for email-confirmation links — exchanges the `code` param for a session and redirects on.
+- `projects` table in Postgres with full Row Level Security.
+
+### Day 2.5 — Dev Mode + Agent Run flow
+
+The Supabase email-confirmation flow is still being sorted out. To unblock product work, this build adds a Dev Mode that bypasses auth entirely and persists everything to `localStorage` instead.
+
+- New env flag `NEXT_PUBLIC_DEV_MODE`. When `true`:
+  - Middleware no longer protects `/dashboard`, `/projects/*`, or `/runs/*`.
+  - `/login` redirects straight to `/dashboard`.
+  - The navbar shows a `Dev Mode` badge instead of the auth CTA.
+  - All reads/writes go through `lib/storage.ts`, which uses `localStorage` keyed by `agenttrace.projects` / `agenttrace.runs` / `agenttrace.run_steps`.
+  - The current user is the constant `dev-user`.
+- Real Project Management:
+  - `/dashboard` lists the current user's projects, with empty state and create CTA.
+  - `/projects/new` creates projects (name required; description / GitHub / demo / wallet / chain optional).
+  - `/projects/[id]` shows project detail and that project's runs.
+- Real Agent Run flow:
+  - `/projects/[id]/runs/new` creates a run with all 8 canonical steps in one form (User Intent → Agent Plan → Tool Calls → Payment Request → Wallet Approval → On-chain Transaction → Verification → Final Result). Each step has its own status (`success / warning / failed / skipped`) and content.
+  - `/runs/[id]` shows the run with a real `TraceTimeline` driven by the captured steps, plus a link back to the parent project.
+- New components: `ProjectCard`, `RunCard`, `TraceTimeline`, `TraceStep`, `EmptyState`, `StatusBadge`, `RiskBadge`.
+- Types: `types/project.ts`, `types/run.ts` (with `STEP_TEMPLATES`, `RUN_STATUS_OPTIONS`, `RISK_LEVEL_OPTIONS`, `STEP_STATUS_OPTIONS`).
+
+#### Switching Dev Mode on
+
+In `.env.local`:
+
+```env
+NEXT_PUBLIC_DEV_MODE=true
+```
+
+Then restart `npm run dev`. The Supabase keys can stay blank in Dev Mode — they aren't read.
+
+> **Important:** Dev Mode is for local development only. Set `NEXT_PUBLIC_DEV_MODE=false` (or remove the line) before shipping to production. With it on, anyone hitting `/dashboard` is treated as the same `dev-user` and Supabase RLS is bypassed entirely.
 
 ## Tech stack
 
@@ -98,11 +128,10 @@ npm run lint    # run ESLint
 
 ## Roadmap
 
-- **Day 3** — Agent Run creation: a real form to log a single Agent task and persist it.
-- **Day 4** — Trace Timeline backed by real run data (replaces the mock timeline).
-- **Day 5** — Task Receipt object: shareable URL, JSON export, hash for verification.
-- **Day 6** — AI Summary of a run.
-- **Day 7+** — Public share page, real chain integrations, signature verification.
+- **Day 3** — Wire `runs` and `run_steps` tables into Supabase + RLS, so flipping `NEXT_PUBLIC_DEV_MODE=false` keeps the same flows working. Finish the email-confirmation callback so signed-in flows round-trip cleanly.
+- **Day 4** — Task Receipt object: shareable URL, JSON export, hash for verification.
+- **Day 5** — AI Summary of a run.
+- **Day 6+** — Public share page, real chain integrations, signature verification.
 
 ## Notes
 

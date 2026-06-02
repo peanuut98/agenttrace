@@ -103,6 +103,61 @@ Goal: stop being a static UI shell. Connect Supabase, get real auth + persistent
 - Agent Run creation, real Trace Timeline, Task Receipt, AI summary, public share, tx hash parsing — these are explicitly Day 3+.
 - No service-role key in the client. All access is via the anon key + RLS.
 
+## Day 2.5 — Completed
+
+Day 2's Supabase email-confirmation flow is still wobbly. Rather than blocking on auth, this slice unblocks product work by making the app runnable without Supabase. Auth code stays — it's just bypassed in Dev Mode.
+
+### Dev Mode flag
+
+- Added `src/lib/dev-mode.ts` exporting `DEV_MODE` (read from `NEXT_PUBLIC_DEV_MODE === "true"`) and `DEV_USER_ID = "dev-user"`.
+- Updated `.env.example` to document the new flag.
+- `src/lib/supabase/middleware.ts` now short-circuits in Dev Mode — protected routes pass through, no Supabase call.
+- `/login` redirects straight to `/dashboard` in Dev Mode.
+- `Navbar` renders a "Dev Mode" badge in place of the user-email + sign-out controls when the flag is on.
+
+### Storage adapter
+
+- Added `src/lib/storage.ts` — a thin layer that, in Dev Mode, reads/writes `localStorage` (`agenttrace.projects`, `agenttrace.runs`, `agenttrace.run_steps`); in normal mode, calls Supabase via the existing browser/server clients.
+- Browser-side functions: `listProjectsBrowser`, `getProjectBrowser`, `createProjectBrowser`, `listRunsForProjectBrowser`, `createRunWithStepsBrowser`, `getRunBrowser`, `listStepsForRunBrowser`.
+- Server-side functions: `getServerUserId`, `listProjectsServer`, `getProjectServer` (used for non-Dev-Mode reads from Server Components — Day 3 wiring).
+- Records are timestamped with `crypto.randomUUID()` ids in Dev Mode.
+
+### Types
+
+- `src/types/project.ts` already in place (carried over from Day 2).
+- New `src/types/run.ts` with `Run`, `RunStep`, `RunStatus`, `RiskLevel`, `StepStatus`, `StepType`, plus the canonical 8-step `STEP_TEMPLATES` constant and the `RUN_STATUS_OPTIONS / RISK_LEVEL_OPTIONS / STEP_STATUS_OPTIONS` arrays used by the create form.
+
+### Pages
+
+- `/dashboard` rewritten as a thin Server Component that delegates to `DashboardClient` (Client Component). The Client uses `listProjectsBrowser`, so it works for both Dev Mode (localStorage) and Supabase.
+- `/projects/[id]` rewritten the same way, delegating to `ProjectDetailClient`. Now reads runs for the project and renders them as `RunCard` grid (or `EmptyState` if none).
+- `/projects/[id]/runs/new` — new Server Component page wrapping `NewRunForm`. The form has:
+  - `title` and `agent_name` (required), plus `status` and `risk_level` selects.
+  - All 8 canonical steps pre-rendered, each with its own status select + content textarea.
+  - Submits via `createRunWithStepsBrowser` and navigates to `/runs/<new run id>`.
+- `/runs/[id]` — new Server Component page wrapping `RunDetailClient`. Loads the run + steps + parent project from the storage adapter and renders:
+  - Run header with `StatusBadge`, `RiskBadge`, agent name, project link, created timestamp.
+  - `TraceTimeline` (real component, real data — replaces the mock timeline for run pages).
+
+### Components
+
+- `StatusBadge` and `RiskBadge` (color-coded badges driven by enum string).
+- `RunCard` (compact run summary used on the project detail page).
+- `TraceTimeline` + `TraceStep` (real timeline driven by `RunStep[]`, replaces what the mock version did for runs).
+- Existing `EmptyState`, `ProjectCard`, `StatsCard` reused unchanged.
+
+### Out of scope (intentionally)
+
+- Supabase email-confirmation fix.
+- Task Receipt, AI Summary, Public Share, tx-hash parsing.
+- Real x402 / MCP / Cobo integrations, payments.
+- A Day 3 SQL migration for `runs` and `run_steps` — the storage adapter wires up the Supabase branch already, but the migration itself is Day 3.
+
+### Verified
+
+- `npm run build` passes (TypeScript + ESLint, App Router, Turbopack).
+- Dev Mode flow: register-free; localStorage round-trips; refresh keeps data.
+
 ## Product Direction
 
 AgentTrace targets Web3 AI Agent builders who need an honest record of what their Agents actually did. A single Agent run can fan out into multiple LLM calls, tool calls, off-chain payments and on-chain transactions; today none of that is visible to the end user or auditable after the fact.
@@ -117,8 +172,7 @@ Day 2 turns the mock dashboard into a real per-user workspace. Days 3+ start wri
 ## Next Step
 
 - **Day 3 plan**:
-  - Add `agent_runs` table (RLS gated, parented to `projects`).
-  - Enable the now-disabled "Create Agent run" button on `/projects/[id]`.
-  - Build `/projects/[id]/runs/new` and `/projects/[id]/runs/[runId]`.
-  - Reuse `MockTraceTimeline`'s structure but feed it real step data.
+  - Add `runs` and `run_steps` tables to `supabase/schema.sql` with RLS gated to `auth.uid()`.
+  - Drop Dev Mode in CI/prod, keep it for local until the Supabase email-confirmation flow is solid.
+  - Fix the email-confirmation callback so the round-trip from Supabase email → app actually lands the user signed in.
 - Still **out of scope** for Day 3: Task Receipt object, AI summary, public share, tx hash parsing.

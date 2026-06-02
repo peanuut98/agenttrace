@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { createClient } from "@/lib/supabase/client";
+import { createProjectBrowser } from "@/lib/storage";
 
 function trimOrNull(value: string): string | null {
   const trimmed = value.trim();
@@ -37,41 +37,21 @@ export function NewProjectForm() {
     }
 
     setLoading(true);
-
-    const supabase = createClient();
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      setError("You must be signed in to create a project.");
-      setLoading(false);
-      return;
-    }
-
-    const { data, error: insertError } = await supabase
-      .from("projects")
-      .insert({
-        user_id: user.id,
+    try {
+      const project = await createProjectBrowser({
         name: trimmedName,
         description: trimOrNull(description),
         github_url: trimOrNull(githubUrl),
         demo_url: trimOrNull(demoUrl),
         wallet_address: trimOrNull(walletAddress),
         chain: trimOrNull(chain),
-      })
-      .select("id")
-      .single();
-
-    if (insertError || !data) {
-      setError(insertError?.message ?? "Failed to create project.");
+      });
+      router.push(`/projects/${project.id}`);
+      router.refresh();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to create project.");
       setLoading(false);
-      return;
     }
-
-    router.push(`/projects/${data.id}`);
-    router.refresh();
   }
 
   return (
