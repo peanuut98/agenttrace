@@ -17,12 +17,15 @@ import { TraceTimeline } from "@/components/trace-timeline";
 import { StatusBadge } from "@/components/status-badge";
 import { RiskBadge } from "@/components/risk-badge";
 import { ReceiptPanel } from "@/components/receipt-panel";
+import { SummaryPanel } from "@/components/summary-panel";
 import {
   getProjectBrowser,
+  getReceiptForRunBrowser,
   getRunBrowser,
   listStepsForRunBrowser,
 } from "@/lib/storage";
 import type { Project } from "@/types/project";
+import type { Receipt } from "@/types/receipt";
 import type { Run, RunStep } from "@/types/run";
 
 const dateFormatter = new Intl.DateTimeFormat("en-US", {
@@ -40,6 +43,8 @@ type LoadState =
 
 export function RunDetailClient({ runId }: { runId: string }) {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
+  // undefined while loading from storage, null when no receipt exists yet.
+  const [receipt, setReceipt] = useState<Receipt | null | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,12 +56,14 @@ export function RunDetailClient({ runId }: { runId: string }) {
           setState({ kind: "missing" });
           return;
         }
-        const [steps, project] = await Promise.all([
+        const [steps, project, savedReceipt] = await Promise.all([
           listStepsForRunBrowser(runId),
           getProjectBrowser(run.project_id),
+          getReceiptForRunBrowser(runId),
         ]);
         if (cancelled) return;
         setState({ kind: "ready", run, steps, project });
+        setReceipt(savedReceipt);
       } catch {
         if (!cancelled) setState({ kind: "missing" });
       }
@@ -180,7 +187,19 @@ export function RunDetailClient({ runId }: { runId: string }) {
       </Card>
 
       {project ? (
-        <ReceiptPanel run={run} project={project} steps={steps} />
+        <>
+          <ReceiptPanel
+            run={run}
+            project={project}
+            steps={steps}
+            receipt={receipt}
+            onReceiptChange={setReceipt}
+          />
+          <SummaryPanel
+            receipt={receipt ?? null}
+            onSummaryUpdated={setReceipt}
+          />
+        </>
       ) : null}
     </div>
   );

@@ -89,6 +89,7 @@ export type NewRunStepInput = {
   title: string;
   content: string;
   status: StepStatus;
+  metadata?: StepMetadata | null;
 };
 
 export type NewRunInput = {

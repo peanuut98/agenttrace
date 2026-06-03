@@ -221,6 +221,76 @@ Pure functions, no side effects:
 - `npm run build` passes (TypeScript + ESLint, App Router + Turbopack).
 - Dev Mode: generate → hash + JSON + Markdown render; copy buttons populate clipboard; refresh keeps the receipt; regenerate overwrites in place.
 
+## Day 4 — Completed
+
+Goal: make every run explainable. Add an AI Summary that builds on the Day 3 receipt JSON, surface MCP / Tool Calls metadata in the timeline, and give a one-click demo so reviewers can see what the product produces without filling out two forms.
+
+### AI Summary
+
+- New server-only route `src/app/api/ai-summary/route.ts`. Accepts `{receipt_json}` and returns a `ReceiptAiSummary`. The `AI_API_KEY` is read on the server only — never reaches the client bundle.
+- New `src/lib/ai-summary.ts` (`import "server-only"`):
+  - `generateAiSummary(receiptJson, options)` is the single entrypoint. If `AI_API_KEY` is missing it returns a mock summary. If the key is present it calls the Anthropic Messages API with a strict-JSON system prompt; on any upstream failure it falls back to the mock so the UI never errors.
+  - Default model `claude-haiku-4-5-20251001`. Overridable via `AI_MODEL`.
+  - Mock path is deterministic — pulls intent, MCP fields, payment / wallet / on-chain / verification content from the receipt JSON.
+- `.env.example` documents `AI_API_KEY` + `AI_MODEL` and explicitly says blank is fine (mock fallback).
+
+### Receipt type changes
+
+- `ReceiptAiSummary = {run_summary, technical_flow, audit_notes, source, generated_at}` added in `src/types/receipt.ts`.
+- `Receipt` now includes `ai_summary: ReceiptAiSummary | null`.
+- `lib/storage.ts`:
+  - New `updateReceiptSummaryBrowser(runId, summary)` — writes the AI summary onto the existing receipt (one summary per run).
+  - `saveReceiptBrowser` now resets `ai_summary` to `null` on regeneration so a stale summary never describes a newer receipt.
+  - Localstorage key remains `agenttrace.receipts`.
+
+### MCP-aware Trace Timeline
+
+- `RunStep` already had optional `metadata` (Day 3). `NewRunStepInput` and `createRunWithStepsBrowser` now persist it through both the Dev Mode and Supabase branches, so creation flows can attach MCP / tx-hash data.
+- `src/components/trace-step.tsx`:
+  - When the `tool_calls` step has any of `mcp_server`, `tool_name`, `tool_input_summary`, `tool_output_summary`, `latency_ms`, the timeline renders a structured `<dl>` card above the content.
+  - Steps without metadata fall back to the existing content rendering — no breakage for older runs.
+
+### Run Detail page
+
+- `src/app/runs/[id]/run-detail-client.tsx` now owns the `Receipt` state and passes it down to both panels:
+  - `ReceiptPanel` is now controlled (`receipt`, `onReceiptChange`).
+  - `SummaryPanel` reads the same receipt and writes the `ai_summary` back via `updateReceiptSummaryBrowser`.
+  - Both panels stay in sync without a refetch.
+- `SummaryPanel` (`src/components/summary-panel.tsx`):
+  - `Generate AI summary` / `Regenerate AI summary` button.
+  - "Generate a receipt first" empty state when there's no receipt yet.
+  - Renders the three sections (Run summary, Technical flow, Audit notes) with icons.
+  - Source badge — `AI generated` (emerald) vs `Mock summary` (amber). When mock, shows a one-line disclaimer that `AI_API_KEY` is not configured.
+  - Toast feedback (success / error) auto-dismisses after ~3.5s.
+
+### Demo data
+
+- New `src/lib/demo-data.ts`:
+  - `loadDemoProject()` creates the Day 4 demo project (`Agent Payment Demo` on Base Sepolia, wallet `0x1234…5678`) and a fully populated run (`Wallet Risk Analysis with Paid Data API`) with all 8 canonical steps. The tool-calls step carries MCP metadata; the on-chain step carries a `transaction_hash`.
+  - Uses the existing `createProjectBrowser` / `createRunWithStepsBrowser` adapters, so it works in both Dev Mode and Supabase mode.
+- Dashboard empty-state now offers a `Load demo project` button next to `Create project`. Click → demo is written → router pushes straight to the demo run's detail page.
+
+### UI polish
+
+- Empty-state CTA layout updated for two buttons.
+- Receipt + AI summary panels stacked under the Trace timeline with consistent spacing.
+- MCP metadata renders as a `<dl>` grid (label / monospace value), not a code block, so it reads as structured data.
+
+### Out of scope (intentionally)
+
+- Public share page for receipts.
+- Real MCP SDK or x402 integration.
+- Real chain RPC calls or tx-hash auto-resolution beyond the Day 3 regex fallback.
+- Stripe / payments.
+- Supabase email-confirmation fix.
+- Team / org permissions.
+
+### Verified
+
+- `npm run build` passes (TypeScript + ESLint, App Router + Turbopack); the new `/api/ai-summary` route shows up in the route table.
+- `npm run lint` clean.
+- Dev Mode: load demo → see MCP metadata card in the timeline; generate receipt → hash + JSON + Markdown all populate; generate AI summary without `AI_API_KEY` → renders with `Mock summary` badge + disclaimer; refresh keeps everything; regenerating the receipt clears the AI summary so the next click rebuilds it from the fresh JSON.
+
 ## Product Direction
 
 AgentTrace targets Web3 AI Agent builders who need an honest record of what their Agents actually did. A single Agent run can fan out into multiple LLM calls, tool calls, off-chain payments and on-chain transactions; today none of that is visible to the end user or auditable after the fact.
@@ -234,7 +304,7 @@ Day 2 turns the mock dashboard into a real per-user workspace. Days 3+ start wri
 
 ## Next Step
 
-- **Day 4 plan**:
-  - Add `runs`, `run_steps`, and `receipts` tables to `supabase/schema.sql` with RLS gated to `auth.uid()`. Receipts FK to `runs(id)`; runs FK to `projects(id)`. Drop the localStorage fallback for users who flip Dev Mode off.
+- **Day 5 plan**:
+  - Add `runs`, `run_steps`, and `receipts` tables to `supabase/schema.sql` with RLS gated to `auth.uid()`. Receipts FK to `runs(id)`; runs FK to `projects(id)`. `receipts.ai_summary` jsonb. Drop the localStorage fallback for users who flip Dev Mode off.
   - Fix the Supabase email-confirmation round-trip (Site URL + Redirect URL config + the `/auth/callback` handler) so non-Dev-Mode signed-in flows actually land.
-- Still **out of scope** for Day 4: AI summary, public share, tx hash auto-parsing via RPC, real MCP SDK, payments.
+- Still **out of scope** for Day 5: public share, tx hash auto-parsing via RPC, real MCP SDK, payments.

@@ -21,13 +21,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  buildReceipt,
-} from "@/lib/receipt";
-import {
-  getReceiptForRunBrowser,
-  saveReceiptBrowser,
-} from "@/lib/storage";
+import { buildReceipt } from "@/lib/receipt";
+import { saveReceiptBrowser } from "@/lib/storage";
 import type { Project } from "@/types/project";
 import type { Receipt } from "@/types/receipt";
 import type { Run, RunStep } from "@/types/run";
@@ -37,33 +32,26 @@ type ReceiptPanelProps = {
   run: Run;
   project: Project;
   steps: RunStep[];
+  /** undefined = still loading; null = no receipt yet; Receipt = saved one */
+  receipt: Receipt | null | undefined;
+  onReceiptChange: (receipt: Receipt) => void;
 };
 
 type Toast =
   | { kind: "success"; message: string }
   | { kind: "error"; message: string };
 
-export function ReceiptPanel({ run, project, steps }: ReceiptPanelProps) {
-  const [receipt, setReceipt] = useState<Receipt | null | undefined>(undefined);
+export function ReceiptPanel({
+  run,
+  project,
+  steps,
+  receipt,
+  onReceiptChange,
+}: ReceiptPanelProps) {
   const [generating, setGenerating] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
   const [showJson, setShowJson] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    getReceiptForRunBrowser(run.id)
-      .then((r) => {
-        if (!cancelled) setReceipt(r);
-      })
-      .catch(() => {
-        if (!cancelled) setReceipt(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [run.id]);
-
-  // Auto-clear toast after a few seconds.
   useEffect(() => {
     if (!toast) return;
     const id = setTimeout(() => setToast(null), 3500);
@@ -76,12 +64,10 @@ export function ReceiptPanel({ run, project, steps }: ReceiptPanelProps) {
     try {
       const partial = await buildReceipt(run, project, steps);
       const saved = await saveReceiptBrowser(partial);
-      setReceipt(saved);
+      onReceiptChange(saved);
       setToast({
         kind: "success",
-        message: receipt
-          ? "Receipt regenerated."
-          : "Receipt generated.",
+        message: receipt ? "Receipt regenerated." : "Receipt generated.",
       });
     } catch (err: unknown) {
       setToast({
@@ -103,7 +89,6 @@ export function ReceiptPanel({ run, project, steps }: ReceiptPanelProps) {
     }
   }
 
-  // Loading the saved receipt (initial render).
   if (receipt === undefined) {
     return (
       <Card>
@@ -160,7 +145,9 @@ export function ReceiptPanel({ run, project, steps }: ReceiptPanelProps) {
         {!receipt ? (
           <p className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-6 text-center text-sm text-muted-foreground">
             No receipt yet. Click{" "}
-            <span className="font-medium text-foreground">Generate receipt</span>{" "}
+            <span className="font-medium text-foreground">
+              Generate receipt
+            </span>{" "}
             to produce a structured JSON + Markdown export of this run.
           </p>
         ) : (

@@ -82,6 +82,34 @@ Each Agent Run can now produce a versioned, hashable receipt and a Markdown repo
   - Toast feedback on success / error; auto-clears.
   - Existing receipts are loaded automatically when the page is opened.
 
+### Day 4 — AI Summary, MCP-aware UI, Demo data
+
+A receipt is now also explainable. Every run can produce a three-section AI summary (Run Summary / Technical Flow / Audit Notes) directly from the receipt JSON.
+
+- **Server-only AI route** at `src/app/api/ai-summary/route.ts`. The `AI_API_KEY` is read on the server only and never reaches the browser.
+- **`src/lib/ai-summary.ts`** with two paths:
+  - **AI path**: when `AI_API_KEY` is set, calls the Anthropic Messages API with a strict-JSON system prompt. Default model is `claude-haiku-4-5-20251001`; override with `AI_MODEL`.
+  - **Mock path**: when the key is missing _or_ the upstream call throws, builds a deterministic summary from the receipt JSON (intent + tool calls + payment / wallet / on-chain / verification + status / risk). The UI gets a uniform `ReceiptAiSummary` either way and shows a `Mock summary` badge plus a small disclaimer when the mock path is taken.
+- **`Receipt` gains `ai_summary`** (`run_summary`, `technical_flow`, `audit_notes`, `source: "ai" | "mock"`, `generated_at`). Regenerating the underlying receipt invalidates the prior summary so it always reflects the current snapshot.
+- **`SummaryPanel`** mounts on `/runs/[id]` below the `ReceiptPanel`:
+  - Tells the user to generate a receipt first when there isn't one.
+  - "Generate AI summary" / "Regenerate AI summary" with loading state and toast feedback.
+  - Renders the three sections with icons and a source badge (AI vs Mock).
+- **MCP-aware Trace Timeline**: the `tool_calls` step now renders a structured key/value card whenever `metadata` carries `mcp_server`, `tool_name`, `tool_input_summary`, `tool_output_summary`, or `latency_ms`. Steps without metadata fall back to the existing content rendering.
+- **Demo project loader**: the empty-state on `/dashboard` gains a `Load demo project` button. It writes a fully-populated demo project + run (`Wallet Risk Analysis with Paid Data API` on Base Sepolia, with MCP metadata on the tool-calls step and a transaction hash on the on-chain step) and routes to the run detail page.
+- **`NewRunStepInput` and the run insert path** now persist optional `metadata`, so any future creation flow can attach MCP / tx-hash metadata without another migration.
+
+#### Configuring the AI summary
+
+In `.env.local`:
+
+```env
+AI_API_KEY=sk-ant-...        # optional — leave blank to use mock summaries
+AI_MODEL=claude-haiku-4-5-20251001   # optional override
+```
+
+Without `AI_API_KEY`, the API route still returns a valid summary; the panel just labels it `Mock summary` and shows a one-line disclaimer.
+
 ## Tech stack
 
 - [Next.js 16](https://nextjs.org) (App Router, Turbopack)
@@ -149,9 +177,9 @@ npm run lint    # run ESLint
 
 ## Roadmap
 
-- **Day 4** — `runs` / `run_steps` / `receipts` tables in Supabase + RLS, so flipping `NEXT_PUBLIC_DEV_MODE=false` keeps the same flows working. Finish the email-confirmation callback so signed-in flows round-trip cleanly.
-- **Day 5** — AI Summary of a run.
-- **Day 6+** — Public share page, real chain integrations, signature verification.
+- **Day 5** — Wire `runs` / `run_steps` / `receipts` tables into Supabase + RLS so flipping `NEXT_PUBLIC_DEV_MODE=false` keeps the same flows working. Finish the email-confirmation callback so signed-in flows round-trip cleanly.
+- **Day 6** — Public share page for receipts (read-only by hash).
+- **Day 7+** — Real chain integrations, signature verification, signed receipts.
 
 ## Notes
 

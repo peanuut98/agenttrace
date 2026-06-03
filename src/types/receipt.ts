@@ -59,6 +59,14 @@ export type ReceiptJson = {
   };
 };
 
+export type ReceiptAiSummary = {
+  run_summary: string;
+  technical_flow: string;
+  audit_notes: string;
+  source: "mock" | "ai";
+  generated_at: string;
+};
+
 export type Receipt = {
   id: string;
   run_id: string;
@@ -66,6 +74,7 @@ export type Receipt = {
   receipt_json: ReceiptJson;
   receipt_hash: string;
   markdown_export: string;
+  ai_summary: ReceiptAiSummary | null;
   created_at: string;
   updated_at: string;
 };

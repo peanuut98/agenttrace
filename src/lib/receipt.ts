@@ -268,13 +268,17 @@ function newId(): string {
 }
 
 /**
- * Convenience: build a full Receipt object (pre-storage).
+ * Convenience: build a full Receipt object (pre-storage). The AI summary is
+ * always null at build time — it's added later by the SummaryPanel via the
+ * `/api/ai-summary` route.
  */
 export async function buildReceipt(
   run: Run,
   project: Project,
   steps: RunStep[],
-): Promise<Omit<Receipt, "id" | "created_at" | "updated_at">> {
+): Promise<
+  Omit<Receipt, "id" | "created_at" | "updated_at" | "ai_summary">
+> {
   const json = generateReceiptJson(run, project, steps);
   const hash = await generateReceiptHash(json);
   const markdown = generateMarkdownExport(json, hash);

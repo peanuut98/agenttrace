@@ -2,18 +2,29 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Activity, FolderKanban, Loader2, Plus, Receipt } from "lucide-react";
+import { useRouter } from "next/navigation";
+import {
+  Activity,
+  FlaskConical,
+  FolderKanban,
+  Loader2,
+  Plus,
+  Receipt,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StatsCard } from "@/components/stats-card";
 import { ProjectCard } from "@/components/project-card";
 import { EmptyState } from "@/components/empty-state";
 import { listProjectsBrowser } from "@/lib/storage";
+import { loadDemoProject } from "@/lib/demo-data";
 import { DEV_MODE, DEV_USER_ID } from "@/lib/dev-mode";
 import type { Project } from "@/types/project";
 
 export function DashboardClient() {
+  const router = useRouter();
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loadingDemo, setLoadingDemo] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -23,7 +34,9 @@ export function DashboardClient() {
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load projects.");
+          setError(
+            err instanceof Error ? err.message : "Failed to load projects.",
+          );
           setProjects([]);
         }
       });
@@ -32,6 +45,21 @@ export function DashboardClient() {
     };
   }, []);
 
+  async function handleLoadDemo() {
+    setLoadingDemo(true);
+    setError(null);
+    try {
+      const { run } = await loadDemoProject();
+      router.push(`/runs/${run.id}`);
+      router.refresh();
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error ? err.message : "Failed to load demo project.",
+      );
+      setLoadingDemo(false);
+    }
+  }
+
   const projectCount = projects?.length ?? 0;
   const isLoading = projects === null;
 
@@ -39,7 +67,9 @@ export function DashboardClient() {
     <div className="mx-auto w-full max-w-6xl space-y-8 px-4 py-10">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Welcome back</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Welcome back
+          </h1>
           <p className="text-sm text-muted-foreground">
             {DEV_MODE ? (
               <>
@@ -75,8 +105,18 @@ export function DashboardClient() {
           }
           icon={FolderKanban}
         />
-        <StatsCard label="Agent runs" value="0" hint="Coming soon" icon={Activity} />
-        <StatsCard label="Receipts" value="0" hint="Coming soon" icon={Receipt} />
+        <StatsCard
+          label="Agent runs"
+          value="0"
+          hint="Coming soon"
+          icon={Activity}
+        />
+        <StatsCard
+          label="Receipts"
+          value="0"
+          hint="Coming soon"
+          icon={Receipt}
+        />
       </section>
 
       <section className="space-y-4">
@@ -94,14 +134,33 @@ export function DashboardClient() {
         ) : projectCount === 0 ? (
           <EmptyState
             title="You have no projects yet."
-            description="Create your first project to start tracing Web3 agent workflows."
+            description="Create your first project to start tracing Web3 agent workflows, or load a demo to see what AgentTrace produces end to end."
             action={
-              <Button asChild>
-                <Link href="/projects/new">
-                  <Plus className="size-4" />
-                  Create project
-                </Link>
-              </Button>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button asChild>
+                  <Link href="/projects/new">
+                    <Plus className="size-4" />
+                    Create project
+                  </Link>
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleLoadDemo}
+                  disabled={loadingDemo}
+                >
+                  {loadingDemo ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" />
+                      Loading demo…
+                    </>
+                  ) : (
+                    <>
+                      <FlaskConical className="size-4" />
+                      Load demo project
+                    </>
+                  )}
+                </Button>
+              </div>
             }
           />
         ) : (

@@ -13,7 +13,7 @@ import { DEV_MODE, DEV_USER_ID } from "@/lib/dev-mode";
 import { createClient as createBrowserSupabase } from "@/lib/supabase/client";
 import type { NewProjectInput, Project } from "@/types/project";
 import type { NewRunInput, Run, RunStep } from "@/types/run";
-import type { Receipt, ReceiptJson } from "@/types/receipt";
+import type { Receipt, ReceiptAiSummary, ReceiptJson } from "@/types/receipt";
 
 const PROJECTS_KEY = "agenttrace.projects";
 const RUNS_KEY = "agenttrace.runs";
@@ -183,6 +183,7 @@ export async function createRunWithStepsBrowser(
       status: step.status,
       order_index: index,
       created_at: now,
+      metadata: step.metadata ?? null,
     }));
     writeArray(RUNS_KEY, [run, ...readArray<Run>(RUNS_KEY)]);
     writeArray(STEPS_KEY, [...readArray<RunStep>(STEPS_KEY), ...steps]);
@@ -224,6 +225,7 @@ export async function createRunWithStepsBrowser(
     content: step.content,
     status: step.status,
     order_index: index,
+    metadata: step.metadata ?? null,
   }));
 
   const { error: stepsError } = await supabase
@@ -311,6 +313,9 @@ export async function saveReceiptBrowser(
           receipt_json: input.receipt_json,
           receipt_hash: input.receipt_hash,
           markdown_export: input.markdown_export,
+          // Regenerating the receipt invalidates any prior AI summary, since
+          // the summary referenced an older snapshot of the run.
+          ai_summary: null,
           updated_at: now,
         }
       : {
@@ -320,6 +325,7 @@ export async function saveReceiptBrowser(
           receipt_json: input.receipt_json,
           receipt_hash: input.receipt_hash,
           markdown_export: input.markdown_export,
+          ai_summary: null,
           created_at: now,
           updated_at: now,
         };
@@ -347,5 +353,45 @@ export async function saveReceiptBrowser(
     .select("*")
     .single();
   if (error || !data) throw error ?? new Error("Failed to save receipt.");
+  return data as Receipt;
+}
+
+/**
+ * Save the AI summary for an existing receipt. Receipt must already exist —
+ * the SummaryPanel only enables this after the receipt is generated.
+ */
+export async function updateReceiptSummaryBrowser(
+  runId: string,
+  summary: ReceiptAiSummary,
+): Promise<Receipt> {
+  const now = nowIso();
+
+  if (DEV_MODE) {
+    const all = readArray<Receipt>(RECEIPTS_KEY);
+    const idx = all.findIndex((r) => r.run_id === runId);
+    if (idx === -1) {
+      throw new Error("No receipt to attach a summary to.");
+    }
+    const next: Receipt = {
+      ...all[idx],
+      ai_summary: summary,
+      updated_at: now,
+    };
+    const nextAll = [...all];
+    nextAll[idx] = next;
+    writeArray(RECEIPTS_KEY, nextAll);
+    return next;
+  }
+
+  const supabase = createBrowserSupabase();
+  const { data, error } = await supabase
+    .from("receipts")
+    .update({ ai_summary: summary })
+    .eq("run_id", runId)
+    .select("*")
+    .single();
+  if (error || !data) {
+    throw error ?? new Error("Failed to save AI summary.");
+  }
   return data as Receipt;
 }

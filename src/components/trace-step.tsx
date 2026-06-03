@@ -84,15 +84,65 @@ export function TraceStep({ step }: { step: RunStep }) {
           #{step.order_index + 1}
         </span>
       </div>
+      {step.step_type === "tool_calls" && hasMcpMetadata(step.metadata) ? (
+        <McpMetadataCard metadata={step.metadata!} />
+      ) : null}
       {step.content ? (
         <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
           {step.content}
         </p>
-      ) : (
+      ) : !hasMcpMetadata(step.metadata) ? (
         <p className="mt-1 text-sm italic text-muted-foreground/70">
           No content captured.
         </p>
-      )}
+      ) : null}
     </li>
+  );
+}
+
+function hasMcpMetadata(metadata: RunStep["metadata"]): boolean {
+  if (!metadata || typeof metadata !== "object") return false;
+  return Boolean(
+    metadata.mcp_server ||
+      metadata.tool_name ||
+      metadata.tool_input_summary ||
+      metadata.tool_output_summary ||
+      typeof metadata.latency_ms === "number",
+  );
+}
+
+function McpMetadataCard({
+  metadata,
+}: {
+  metadata: NonNullable<RunStep["metadata"]>;
+}) {
+  const rows: Array<{ label: string; value: string }> = [];
+  if (metadata.mcp_server) {
+    rows.push({ label: "MCP Server", value: String(metadata.mcp_server) });
+  }
+  if (metadata.tool_name) {
+    rows.push({ label: "Tool", value: String(metadata.tool_name) });
+  }
+  if (metadata.tool_input_summary) {
+    rows.push({ label: "Input", value: String(metadata.tool_input_summary) });
+  }
+  if (metadata.tool_output_summary) {
+    rows.push({ label: "Output", value: String(metadata.tool_output_summary) });
+  }
+  if (typeof metadata.latency_ms === "number") {
+    rows.push({ label: "Latency", value: `${metadata.latency_ms} ms` });
+  }
+  return (
+    <dl className="mt-2 grid gap-1 rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs sm:grid-cols-[max-content_1fr]">
+      {rows.map((row) => (
+        <div
+          key={row.label}
+          className="contents sm:[&>dt]:pr-3"
+        >
+          <dt className="font-medium text-muted-foreground">{row.label}</dt>
+          <dd className="font-mono break-all">{row.value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
