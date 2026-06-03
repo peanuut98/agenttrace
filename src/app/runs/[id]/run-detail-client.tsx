@@ -16,6 +16,7 @@ import { EmptyState } from "@/components/empty-state";
 import { TraceTimeline } from "@/components/trace-timeline";
 import { StatusBadge } from "@/components/status-badge";
 import { RiskBadge } from "@/components/risk-badge";
+import { ReceiptPanel } from "@/components/receipt-panel";
 import {
   getProjectBrowser,
   getRunBrowser,
@@ -177,6 +178,10 @@ export function RunDetailClient({ runId }: { runId: string }) {
           <TraceTimeline steps={steps} />
         </CardContent>
       </Card>
+
+      {project ? (
+        <ReceiptPanel run={run} project={project} steps={steps} />
+      ) : null}
     </div>
   );
 }

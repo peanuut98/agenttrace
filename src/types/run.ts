@@ -25,6 +25,17 @@ export type Run = {
   updated_at: string;
 };
 
+export type StepMetadata = {
+  mcp_server?: string;
+  tool_name?: string;
+  tool_input_summary?: string;
+  tool_output_summary?: string;
+  latency_ms?: number;
+  // Free-form passthrough so callers can attach extra structured fields
+  // (e.g. transaction_hash on the on-chain step) without changing this type.
+  [key: string]: unknown;
+};
+
 export type RunStep = {
   id: string;
   run_id: string;
@@ -34,6 +45,7 @@ export type RunStep = {
   status: StepStatus;
   order_index: number;
   created_at: string;
+  metadata?: StepMetadata | null;
 };
 
 /**

@@ -13,10 +13,12 @@ import { DEV_MODE, DEV_USER_ID } from "@/lib/dev-mode";
 import { createClient as createBrowserSupabase } from "@/lib/supabase/client";
 import type { NewProjectInput, Project } from "@/types/project";
 import type { NewRunInput, Run, RunStep } from "@/types/run";
+import type { Receipt, ReceiptJson } from "@/types/receipt";
 
 const PROJECTS_KEY = "agenttrace.projects";
 const RUNS_KEY = "agenttrace.runs";
 const STEPS_KEY = "agenttrace.run_steps";
+const RECEIPTS_KEY = "agenttrace.receipts";
 
 // ---------------------------------------------------------------------------
 // localStorage helpers
@@ -261,4 +263,89 @@ export async function listStepsForRunBrowser(
     .order("order_index", { ascending: true });
   if (error) throw error;
   return (data ?? []) as RunStep[];
+}
+
+// ---------------------------------------------------------------------------
+// Receipts
+// ---------------------------------------------------------------------------
+
+export type SaveReceiptInput = {
+  run_id: string;
+  project_id: string;
+  receipt_json: ReceiptJson;
+  receipt_hash: string;
+  markdown_export: string;
+};
+
+export async function getReceiptForRunBrowser(
+  runId: string,
+): Promise<Receipt | null> {
+  if (DEV_MODE) {
+    return (
+      readArray<Receipt>(RECEIPTS_KEY).find((r) => r.run_id === runId) ?? null
+    );
+  }
+  const supabase = createBrowserSupabase();
+  const { data } = await supabase
+    .from("receipts")
+    .select("*")
+    .eq("run_id", runId)
+    .maybeSingle();
+  return (data as Receipt | null) ?? null;
+}
+
+/**
+ * Upsert by `run_id`. A run has at most one receipt — regenerating overwrites.
+ */
+export async function saveReceiptBrowser(
+  input: SaveReceiptInput,
+): Promise<Receipt> {
+  const now = nowIso();
+
+  if (DEV_MODE) {
+    const all = readArray<Receipt>(RECEIPTS_KEY);
+    const existing = all.find((r) => r.run_id === input.run_id);
+    const receipt: Receipt = existing
+      ? {
+          ...existing,
+          receipt_json: input.receipt_json,
+          receipt_hash: input.receipt_hash,
+          markdown_export: input.markdown_export,
+          updated_at: now,
+        }
+      : {
+          id: newId(),
+          run_id: input.run_id,
+          project_id: input.project_id,
+          receipt_json: input.receipt_json,
+          receipt_hash: input.receipt_hash,
+          markdown_export: input.markdown_export,
+          created_at: now,
+          updated_at: now,
+        };
+    const next = existing
+      ? all.map((r) => (r.run_id === input.run_id ? receipt : r))
+      : [receipt, ...all];
+    writeArray(RECEIPTS_KEY, next);
+    return receipt;
+  }
+
+  // Supabase path. Table not part of the Day 2 schema yet — Day 4 territory.
+  const supabase = createBrowserSupabase();
+  const { data, error } = await supabase
+    .from("receipts")
+    .upsert(
+      {
+        run_id: input.run_id,
+        project_id: input.project_id,
+        receipt_json: input.receipt_json,
+        receipt_hash: input.receipt_hash,
+        markdown_export: input.markdown_export,
+      },
+      { onConflict: "run_id" },
+    )
+    .select("*")
+    .single();
+  if (error || !data) throw error ?? new Error("Failed to save receipt.");
+  return data as Receipt;
 }

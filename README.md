@@ -61,6 +61,27 @@ Then restart `npm run dev`. The Supabase keys can stay blank in Dev Mode — the
 
 > **Important:** Dev Mode is for local development only. Set `NEXT_PUBLIC_DEV_MODE=false` (or remove the line) before shipping to production. With it on, anyone hitting `/dashboard` is treated as the same `dev-user` and Supabase RLS is bypassed entirely.
 
+### Day 3 — Task Receipt + Markdown Export
+
+Each Agent Run can now produce a versioned, hashable receipt and a Markdown report.
+
+- New types in `src/types/receipt.ts`: `ReceiptJson`, `ReceiptStep`, `ReceiptExecutionTrace`, `Receipt`, plus a `RECEIPT_VERSION` constant (currently `0.1.0`).
+- `src/lib/receipt.ts` — pure functions for generation:
+  - `generateReceiptJson(run, project, steps)` builds the structured payload (project / run / 8-step `execution_trace` / `web3_context` / `verification` / `metadata`). The "Tool Calls" step is exposed as `mcp_tool_calls` so MCP usage is first-class.
+  - `generateReceiptHash(json)` returns `sha256:<hex>` over the canonical (sorted-keys) JSON via Web Crypto. No extra deps.
+  - `generateMarkdownExport(json, hash)` produces the human-readable export.
+  - `buildReceipt(run, project, steps)` is the convenience wrapper that returns `{receipt_json, receipt_hash, markdown_export}` ready for storage.
+- MCP-aware: if a step has `metadata` with `mcp_server`, `tool_name`, `tool_input_summary`, `tool_output_summary`, or `latency_ms`, those fields are surfaced in both the JSON receipt and the Markdown export. If `metadata` is missing, only `step.content` is shown — no breakage.
+- `transaction_hash` is auto-extracted from the on-chain step (`metadata.transaction_hash` first, otherwise the first `0x[64 hex]` substring in the step content).
+- Storage: `getReceiptForRunBrowser(runId)` and `saveReceiptBrowser(input)` in `src/lib/storage.ts`. In Dev Mode, receipts live under the `agenttrace.receipts` localStorage key. The Supabase branch upserts on `run_id`.
+- New `ReceiptPanel` on `/runs/[id]`:
+  - "Generate receipt" / "Regenerate receipt" button.
+  - Receipt hash shown as a `Badge`, with Copy.
+  - JSON receipt in a collapsible `<pre>` block, with Copy JSON.
+  - Markdown export in a `<pre>` block, with Copy Markdown.
+  - Toast feedback on success / error; auto-clears.
+  - Existing receipts are loaded automatically when the page is opened.
+
 ## Tech stack
 
 - [Next.js 16](https://nextjs.org) (App Router, Turbopack)
@@ -128,8 +149,7 @@ npm run lint    # run ESLint
 
 ## Roadmap
 
-- **Day 3** — Wire `runs` and `run_steps` tables into Supabase + RLS, so flipping `NEXT_PUBLIC_DEV_MODE=false` keeps the same flows working. Finish the email-confirmation callback so signed-in flows round-trip cleanly.
-- **Day 4** — Task Receipt object: shareable URL, JSON export, hash for verification.
+- **Day 4** — `runs` / `run_steps` / `receipts` tables in Supabase + RLS, so flipping `NEXT_PUBLIC_DEV_MODE=false` keeps the same flows working. Finish the email-confirmation callback so signed-in flows round-trip cleanly.
 - **Day 5** — AI Summary of a run.
 - **Day 6+** — Public share page, real chain integrations, signature verification.
 

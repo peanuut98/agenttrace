@@ -158,6 +158,69 @@ Day 2's Supabase email-confirmation flow is still wobbly. Rather than blocking o
 - `npm run build` passes (TypeScript + ESLint, App Router, Turbopack).
 - Dev Mode flow: register-free; localStorage round-trips; refresh keeps data.
 
+## Day 3 — Completed
+
+Goal: turn each Agent Run into a structured, hashable receipt + a Markdown export. No new external services, no AI, no public share — all generation happens in the browser, all persistence goes through the existing storage adapter.
+
+### Types
+
+- `src/types/receipt.ts` — new file. Defines:
+  - `ReceiptJson` — versioned payload with `project` / `run` / `execution_trace` / `web3_context` / `verification` / `metadata`. The `execution_trace` exposes named slots (one per canonical step) and uses `mcp_tool_calls` instead of `tool_calls` so MCP semantics are explicit in the receipt.
+  - `ReceiptStep` — `{step_type, title, status, content, metadata?}`.
+  - `Receipt` — the persisted record (`id, run_id, project_id, receipt_json, receipt_hash, markdown_export, created_at, updated_at`).
+  - `RECEIPT_VERSION = "0.1.0"` constant — bumped whenever the JSON shape changes.
+- `src/types/run.ts` — added optional `metadata` to `RunStep` plus a `StepMetadata` shape (`mcp_server`, `tool_name`, `tool_input_summary`, `tool_output_summary`, `latency_ms`, free-form passthrough). Backwards-compatible: existing runs without `metadata` keep working.
+
+### Generation (`src/lib/receipt.ts`)
+
+Pure functions, no side effects:
+
+- `generateReceiptJson(run, project, steps)` — sorts steps by `order_index`, slots them into the named trace fields, copies project + run scalars, and pulls a `transaction_hash` for `web3_context` from the on-chain step (`metadata.transaction_hash` first, then `metadata.tx_hash` / `txHash` / `hash`, then a regex over `step.content` for `0x[a-fA-F0-9]{64}`).
+- `generateReceiptHash(json)` — SHA-256 via Web Crypto (`crypto.subtle.digest`), produced over a canonical stringification (recursively sorted keys) so the same logical receipt always hashes the same. Returns `sha256:<hex>`. No new dependency.
+- `generateMarkdownExport(json, hash)` — produces the human-readable report. The MCP / Tool Calls section auto-prepends MCP-related metadata fields (`MCP Server`, `Tool`, `Input`, `Output`, `Latency`) when they exist; otherwise only the step content is rendered.
+- `buildReceipt(run, project, steps)` — convenience: returns `{run_id, project_id, receipt_json, receipt_hash, markdown_export}` ready for storage.
+
+### Storage
+
+- `src/lib/storage.ts` adds:
+  - `getReceiptForRunBrowser(runId)` — single-receipt lookup.
+  - `saveReceiptBrowser(input)` — upserts on `run_id` (one receipt per run; regenerate overwrites).
+  - In Dev Mode both functions read/write the new localStorage key `agenttrace.receipts`. Existing `projects/runs/run_steps` keys untouched.
+  - The Supabase branch (used when `NEXT_PUBLIC_DEV_MODE=false`) upserts into a `receipts` table on conflict `run_id`. The migration for that table is Day 4 — wired up here so flipping Dev Mode off later requires no extra code change.
+
+### UI
+
+- New component `src/components/receipt-panel.tsx`:
+  - Loads any existing receipt on mount.
+  - Generate / Regenerate button with loading state.
+  - Hash shown as a copyable `Badge` (`sha256:…`).
+  - Collapsible JSON view (`<pre>`) + Copy JSON.
+  - Markdown export view (`<pre>`) + Copy Markdown.
+  - Toast feedback (success / error) auto-dismisses after ~3.5s.
+  - All copying goes through `navigator.clipboard.writeText`.
+- `src/app/runs/[id]/run-detail-client.tsx` mounts `<ReceiptPanel />` below the trace timeline (only when the parent project is loaded).
+- Visual style consistent with Day 2.5: `Card` shell, neutral muted backgrounds, monospace inline for hash + code blocks.
+
+### MCP-aware behaviour
+
+- If a `RunStep` has `metadata = { mcp_server, tool_name, tool_input_summary, tool_output_summary, latency_ms, … }`, those fields appear:
+  - In the JSON receipt as `execution_trace.mcp_tool_calls.metadata`.
+  - In the Markdown export as `- MCP Server: …`, `- Tool: …`, etc., before the step content.
+- If `metadata` is missing or empty, the receipt simply uses `step.content`. No breakage for runs created before Day 3.
+
+### Out of scope (intentionally)
+
+- AI Summary of the run.
+- Public share page or shareable URL gating.
+- Real MCP SDK integration / real x402 / real Stripe.
+- Tx-hash auto-parsing beyond the regex fallback (no chain RPC calls).
+- Supabase email-confirmation fix.
+
+### Verified
+
+- `npm run build` passes (TypeScript + ESLint, App Router + Turbopack).
+- Dev Mode: generate → hash + JSON + Markdown render; copy buttons populate clipboard; refresh keeps the receipt; regenerate overwrites in place.
+
 ## Product Direction
 
 AgentTrace targets Web3 AI Agent builders who need an honest record of what their Agents actually did. A single Agent run can fan out into multiple LLM calls, tool calls, off-chain payments and on-chain transactions; today none of that is visible to the end user or auditable after the fact.
@@ -171,8 +234,7 @@ Day 2 turns the mock dashboard into a real per-user workspace. Days 3+ start wri
 
 ## Next Step
 
-- **Day 3 plan**:
-  - Add `runs` and `run_steps` tables to `supabase/schema.sql` with RLS gated to `auth.uid()`.
-  - Drop Dev Mode in CI/prod, keep it for local until the Supabase email-confirmation flow is solid.
-  - Fix the email-confirmation callback so the round-trip from Supabase email → app actually lands the user signed in.
-- Still **out of scope** for Day 3: Task Receipt object, AI summary, public share, tx hash parsing.
+- **Day 4 plan**:
+  - Add `runs`, `run_steps`, and `receipts` tables to `supabase/schema.sql` with RLS gated to `auth.uid()`. Receipts FK to `runs(id)`; runs FK to `projects(id)`. Drop the localStorage fallback for users who flip Dev Mode off.
+  - Fix the Supabase email-confirmation round-trip (Site URL + Redirect URL config + the `/auth/callback` handler) so non-Dev-Mode signed-in flows actually land.
+- Still **out of scope** for Day 4: AI summary, public share, tx hash auto-parsing via RPC, real MCP SDK, payments.
