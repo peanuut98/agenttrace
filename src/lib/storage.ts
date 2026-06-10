@@ -138,6 +138,18 @@ export async function createProjectBrowser(
 // Runs
 // ---------------------------------------------------------------------------
 
+export async function countRunsBrowser(): Promise<number> {
+  if (DEV_MODE) {
+    return readArray<Run>(RUNS_KEY).length;
+  }
+  const supabase = createBrowserSupabase();
+  const { count, error } = await supabase
+    .from("runs")
+    .select("id", { count: "exact", head: true });
+  if (error) throw error;
+  return count ?? 0;
+}
+
 export async function listRunsForProjectBrowser(
   projectId: string,
 ): Promise<Run[]> {
@@ -173,6 +185,7 @@ export async function createRunWithStepsBrowser(
       risk_level: input.risk_level,
       created_at: now,
       updated_at: now,
+      metadata: input.metadata ?? null,
     };
     const steps: RunStep[] = input.steps.map((step, index) => ({
       id: newId(),
@@ -211,6 +224,7 @@ export async function createRunWithStepsBrowser(
       agent_name: input.agent_name,
       status: input.status,
       risk_level: input.risk_level,
+      metadata: input.metadata ?? null,
     })
     .select("*")
     .single();
@@ -294,6 +308,18 @@ export async function getReceiptForRunBrowser(
     .eq("run_id", runId)
     .maybeSingle();
   return (data as Receipt | null) ?? null;
+}
+
+export async function countReceiptsBrowser(): Promise<number> {
+  if (DEV_MODE) {
+    return readArray<Receipt>(RECEIPTS_KEY).length;
+  }
+  const supabase = createBrowserSupabase();
+  const { count, error } = await supabase
+    .from("receipts")
+    .select("id", { count: "exact", head: true });
+  if (error) throw error;
+  return count ?? 0;
 }
 
 /**
@@ -394,4 +420,72 @@ export async function updateReceiptSummaryBrowser(
     throw error ?? new Error("Failed to save AI summary.");
   }
   return data as Receipt;
+}
+
+// ---------------------------------------------------------------------------
+// Public Runs
+// ---------------------------------------------------------------------------
+
+export async function updateRunPublicStatusBrowser(
+  runId: string,
+  isPublic: boolean,
+  publicId: string | null,
+): Promise<Run> {
+  const now = nowIso();
+
+  if (DEV_MODE) {
+    const all = readArray<Run>(RUNS_KEY);
+    const idx = all.findIndex((r) => r.id === runId);
+    if (idx === -1) {
+      throw new Error("Run not found");
+    }
+    const updated: Run = {
+      ...all[idx],
+      is_public: isPublic,
+      public_id: publicId,
+      published_at: isPublic ? now : null,
+      updated_at: now,
+    };
+    const nextAll = [...all];
+    nextAll[idx] = updated;
+    writeArray(RUNS_KEY, nextAll);
+    return updated;
+  }
+
+  const supabase = createBrowserSupabase();
+  const { data, error } = await supabase
+    .from("runs")
+    .update({
+      is_public: isPublic,
+      public_id: publicId,
+      published_at: isPublic ? now : null,
+      updated_at: now,
+    })
+    .eq("id", runId)
+    .select("*")
+    .single();
+  if (error || !data) {
+    throw error ?? new Error("Failed to update run public status");
+  }
+  return data as Run;
+}
+
+export async function getPublicRunBrowser(
+  publicId: string,
+): Promise<Run | null> {
+  if (DEV_MODE) {
+    const run = readArray<Run>(RUNS_KEY).find(
+      (r) => r.is_public === true && r.public_id === publicId,
+    );
+    return run ?? null;
+  }
+
+  const supabase = createBrowserSupabase();
+  const { data } = await supabase
+    .from("runs")
+    .select("*")
+    .eq("public_id", publicId)
+    .eq("is_public", true)
+    .maybeSingle();
+  return (data as Run | null) ?? null;
 }

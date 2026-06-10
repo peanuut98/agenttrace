@@ -2,10 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   Activity,
-  FlaskConical,
   FolderKanban,
   Loader2,
   Plus,
@@ -15,50 +13,44 @@ import { Button } from "@/components/ui/button";
 import { StatsCard } from "@/components/stats-card";
 import { ProjectCard } from "@/components/project-card";
 import { EmptyState } from "@/components/empty-state";
-import { listProjectsBrowser } from "@/lib/storage";
-import { loadDemoProject } from "@/lib/demo-data";
+import { DemoReportButton } from "@/components/demo-report-button";
+import { listProjectsBrowser, countRunsBrowser, countReceiptsBrowser } from "@/lib/storage";
 import { DEV_MODE, DEV_USER_ID } from "@/lib/dev-mode";
 import type { Project } from "@/types/project";
 
 export function DashboardClient() {
-  const router = useRouter();
   const [projects, setProjects] = useState<Project[] | null>(null);
+  const [runCount, setRunCount] = useState<number | null>(null);
+  const [receiptCount, setReceiptCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loadingDemo, setLoadingDemo] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    listProjectsBrowser()
-      .then((data) => {
-        if (!cancelled) setProjects(data);
+    Promise.all([
+      listProjectsBrowser(),
+      countRunsBrowser(),
+      countReceiptsBrowser(),
+    ])
+      .then(([projectList, runs, receipts]) => {
+        if (cancelled) return;
+        setProjects(projectList);
+        setRunCount(runs);
+        setReceiptCount(receipts);
       })
       .catch((err: unknown) => {
         if (!cancelled) {
           setError(
-            err instanceof Error ? err.message : "Failed to load projects.",
+            err instanceof Error ? err.message : "Failed to load dashboard.",
           );
           setProjects([]);
+          setRunCount(0);
+          setReceiptCount(0);
         }
       });
     return () => {
       cancelled = true;
     };
   }, []);
-
-  async function handleLoadDemo() {
-    setLoadingDemo(true);
-    setError(null);
-    try {
-      const { run } = await loadDemoProject();
-      router.push(`/runs/${run.id}`);
-      router.refresh();
-    } catch (err: unknown) {
-      setError(
-        err instanceof Error ? err.message : "Failed to load demo project.",
-      );
-      setLoadingDemo(false);
-    }
-  }
 
   const projectCount = projects?.length ?? 0;
   const isLoading = projects === null;
@@ -71,26 +63,34 @@ export function DashboardClient() {
             Welcome back
           </h1>
           <p className="text-sm text-muted-foreground">
-            {DEV_MODE ? (
-              <>
-                Dev Mode is on — using local user{" "}
-                <span className="font-mono font-medium text-foreground">
-                  {DEV_USER_ID}
-                </span>
-                .
-              </>
-            ) : (
-              "Signed in. Pick a project to continue."
-            )}
+            Create, generate, and share Proof-of-Execution reports for Web3 AI
+            Agent runs.
           </p>
+          {DEV_MODE && (
+            <p className="text-xs text-muted-foreground">
+              Dev Mode · using local user{" "}
+              <span className="font-mono font-medium text-foreground">
+                {DEV_USER_ID}
+              </span>
+            </p>
+          )}
         </div>
-        <Button asChild>
-          <Link href="/projects/new">
-            <Plus className="size-4" />
-            Create project
-          </Link>
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <DemoReportButton variant="outline" />
+          <Button asChild>
+            <Link href="/projects/new">
+              <Plus className="size-4" />
+              Create project
+            </Link>
+          </Button>
+        </div>
       </div>
+
+      <p className="rounded-md border border-dashed bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">Demo Mode:</span>{" "}
+        Generate Demo Report runs without API keys. Configure an AI provider and
+        explorer API keys later to enable live analysis.
+      </p>
 
       <section className="grid gap-4 sm:grid-cols-3">
         <StatsCard
@@ -107,14 +107,26 @@ export function DashboardClient() {
         />
         <StatsCard
           label="Agent runs"
-          value="0"
-          hint="Coming soon"
+          value={runCount === null ? "—" : runCount.toString()}
+          hint={
+            runCount === null
+              ? "Loading…"
+              : runCount === 1
+                ? "1 traced run"
+                : `${runCount} traced runs`
+          }
           icon={Activity}
         />
         <StatsCard
           label="Receipts"
-          value="0"
-          hint="Coming soon"
+          value={receiptCount === null ? "—" : receiptCount.toString()}
+          hint={
+            receiptCount === null
+              ? "Loading…"
+              : receiptCount === 1
+                ? "1 generated"
+                : `${receiptCount} generated`
+          }
           icon={Receipt}
         />
       </section>
@@ -134,31 +146,15 @@ export function DashboardClient() {
         ) : projectCount === 0 ? (
           <EmptyState
             title="You have no projects yet."
-            description="Create your first project to start tracing Web3 agent workflows, or load a demo to see what AgentTrace produces end to end."
+            description="Generate a demo proof-of-execution report to see what AgentTrace produces end to end, or create your first project from scratch."
             action={
               <div className="flex flex-wrap justify-center gap-2">
-                <Button asChild>
+                <DemoReportButton />
+                <Button variant="outline" asChild>
                   <Link href="/projects/new">
                     <Plus className="size-4" />
                     Create project
                   </Link>
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={handleLoadDemo}
-                  disabled={loadingDemo}
-                >
-                  {loadingDemo ? (
-                    <>
-                      <Loader2 className="size-4 animate-spin" />
-                      Loading demo…
-                    </>
-                  ) : (
-                    <>
-                      <FlaskConical className="size-4" />
-                      Load demo project
-                    </>
-                  )}
                 </Button>
               </div>
             }

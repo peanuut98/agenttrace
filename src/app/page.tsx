@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FeatureCard } from "@/components/feature-card";
 import { MockTraceTimeline } from "@/components/mock-trace-timeline";
+import { DemoReportButton } from "@/components/demo-report-button";
 
 export default function HomePage() {
   return (
@@ -20,28 +21,28 @@ export default function HomePage() {
       <section className="grid gap-10 lg:grid-cols-2 lg:items-center">
         <div className="space-y-6">
           <Badge variant="outline" className="rounded-full">
-            Day 1 · Foundation
+            Proof-of-Execution for Web3 AI Agents
           </Badge>
           <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
-            Audit receipts for every Web3 AI Agent task.
+            Turn Web3 Agent Runs into Shareable Proof-of-Execution Reports.
           </h1>
           <p className="text-base leading-relaxed text-muted-foreground sm:text-lg">
-            AgentTrace records intent, plans, tool calls, payment requests,
-            wallet confirmations, on-chain transactions and verified results
-            from one Agent run, then turns them into a shareable Task Receipt.
+            AgentTrace records transaction context, MCP-aware tool calls,
+            execution timelines, task receipts, and AI audit reports — into a
+            single shareable proof-of-execution page.
           </p>
           <div className="flex flex-wrap gap-3">
-            <Button asChild size="lg">
-              <Link href="/dashboard">
-                View demo dashboard <ArrowRight className="size-4" />
-              </Link>
-            </Button>
+            <DemoReportButton size="lg" />
             <Button asChild variant="outline" size="lg">
-              <Link href="/login">Sign in</Link>
+              <Link href="/dashboard">
+                View Dashboard <ArrowRight className="size-4" />
+              </Link>
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            Demo data only · no wallets, no AI calls, no accounts.
+            Demo Mode works without API keys. Configure an AI provider and
+            explorer API keys to enable live AI audit reports and transaction
+            verification.
           </p>
         </div>
 
@@ -57,7 +58,44 @@ export default function HomePage() {
         </Card>
       </section>
 
-      <section className="mt-20 space-y-6">
+      <section className="mt-16 grid gap-4 sm:grid-cols-3">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-semibold">
+              Mock fallback for no-key demos
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-xs leading-relaxed text-muted-foreground">
+            Generate a complete proof-of-execution report without any API
+            credentials. Mock data is clearly labeled at every layer.
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-semibold">
+              API-ready architecture
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-xs leading-relaxed text-muted-foreground">
+            Drop in a Claude-compatible API provider and explorer (Basescan /
+            Etherscan) API keys to switch from Demo Mode to Live Mode without
+            code changes.
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-semibold">
+              Transparent data source labeling
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-xs leading-relaxed text-muted-foreground">
+            Every public report shows Transaction Data Source, AI Report
+            Source, Verification Level, and Report Mode in plain text.
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="mt-16 space-y-6">
         <div className="space-y-2">
           <h2 className="text-2xl font-semibold tracking-tight">
             What gets captured

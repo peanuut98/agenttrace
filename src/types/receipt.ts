@@ -59,12 +59,23 @@ export type ReceiptJson = {
   };
 };
 
+export type RiskFlag = {
+  level: "low" | "medium" | "high";
+  item: string;
+};
+
 export type ReceiptAiSummary = {
   run_summary: string;
   technical_flow: string;
   audit_notes: string;
-  source: "mock" | "ai";
+  source: "mock" | "ai" | "claude_compatible";
   generated_at: string;
+  // Optional Day 6 fields — backward compatible.
+  executive_summary?: string;
+  missing_evidence?: string[];
+  risk_flags?: RiskFlag[];
+  suggested_improvements?: string[];
+  audit_readiness_score?: number;
 };
 
 export type Receipt = {

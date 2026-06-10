@@ -48,263 +48,323 @@ Goal: stop being a static UI shell. Connect Supabase, get real auth + persistent
   - Redirects to `/dashboard` (or to the original `?next=…` path) if already signed in.
   - Renders `LoginForm` otherwise.
 - New Client Component `LoginForm` (`src/app/login/login-form.tsx`) with:
-  - A two-tab toggle for Sign in / Sign up.
-  - Email + password fields with `autoComplete` hints.
-  - Loading state on the submit button.
-  - Error display for Supabase errors.
-  - Sign-up branch handles both "session returned immediately" (auto-confirm enabled) and "no session — please confirm email" cases.
+  - Two-tab toggle (Sign In / Sign Up).
+  - Email + password inputs.
+  - Loading state, error state, and `success` state (shown briefly before the redirect).
+  - Real calls to `signInWithPassword` and `signUp` via the Supabase browser client.
+  - Redirects to the originally requested page after sign-in (via the `?next=…` param).
 
-### Sign out + Navbar
+### Auth in the navbar
 
-- Converted `Navbar` to a Server Component that reads `auth.getUser()`. When signed in it shows the user's email and a `SignOutButton`; otherwise it shows the existing "Sign in" CTA.
-- New Client Component `SignOutButton` (`src/components/sign-out-button.tsx`) calls `supabase.auth.signOut()`, then `router.push('/login')` + `router.refresh()`.
+- `Navbar` loads the current user in a `useEffect`.
+- If signed in, shows the user's email and a sign-out button.
+- If signed out, shows a "Sign in" link that points to `/login` with the current path as `?next=…`.
+- All state is local to the navbar. No global provider.
 
-### Protected routes
+### Auth flow
 
-- Middleware redirects unauthenticated visitors away from any path under `/dashboard` or `/projects` to `/login?next=<original-path>`.
-- `LoginPage` honours `?next` so users land back where they came from.
+- Real email/password sign-up → sends confirmation email.
+- New `/auth/callback` route handler exchanges the `code` query param for a session and redirects to `/dashboard`.
+- Sign-in works immediately (no email confirmation required if already confirmed).
+- Sign-out clears the session and redirects to `/`.
+- Middleware refreshes the session on every request and redirects unauthenticated users away from `/dashboard` and `/projects/*`.
 
-### Dashboard
+### Projects
 
-- Replaced the mock dashboard with real data. It now:
-  - Reads `auth.getUser()` and selects all the user's projects ordered by `created_at desc`.
-  - Renders three stats cards: `Projects` (real count), `Agent runs` and `Receipts` (both still `0`, labelled "Coming soon").
-  - Shows `EmptyState` when the user has no projects yet, with a "Create project" button pointing to `/projects/new`.
-  - Renders a grid of `ProjectCard` (new component) when there are projects.
+- Real `/dashboard` (`src/app/dashboard/page.tsx`):
+  - Server Component that reads the user from Supabase.
+  - If not signed in, redirects to `/login?next=/dashboard`.
+  - If signed in, fetches that user's projects from Postgres via RLS.
+  - Shows stats cards (Projects, Agent Runs, Receipts) all hardcoded to `0` for now.
+  - Shows the list of projects as `ProjectCard` or an `EmptyState` CTA.
+- `/projects/new` (`src/app/projects/new/page.tsx`):
+  - Client Component with a multi-field form.
+  - Fields: name (required), description, GitHub URL, demo URL, wallet address, chain (select).
+  - On submit: inserts into the `projects` table via the Supabase client.
+  - Displays loading + error state.
+  - Redirects to `/projects/[id]` on success.
+- `/projects/[id]` (`src/app/projects/[id]/page.tsx`):
+  - Server Component that reads the project by ID.
+  - If not found, redirects to `/dashboard` with `toast=not_found`.
+  - If found, shows project details (name, description, wallet, chain, GitHub, demo, created/updated timestamps).
+  - Placeholder for "Agent Runs" section (hardcoded to zero).
+- `src/types/project.ts` — TypeScript definition for `Project`.
 
-### `/projects/new`
+### Summary
 
-- New Server Component page wraps a Client Component form (`new-project-form.tsx`).
-- Form fields: `name` (required), `description`, `github_url`, `demo_url`, `wallet_address`, `chain`.
-- On submit:
-  - Reads the current user via the browser client.
-  - Inserts into `projects` with `user_id` set to that user id (RLS enforces this independently).
-  - On success, navigates to `/projects/<id>` and refreshes the router cache.
-  - On failure, shows the error inline and re-enables the form.
-- Cancel button navigates back to `/dashboard`.
+Supabase auth + RLS-backed projects is wired end-to-end. Email confirmation is sent; the `/auth/callback` route handler completes the loop. Protected routes redirect to `/login` when unauthenticated. Project list, create, and detail pages are live. Day 3 will add Agent Runs + Steps, also persisted to Supabase.
 
-### `/projects/[id]`
+## Day 2.5 — Completed (Dev Mode + Agent Run flow)
 
-- Server Component that:
-  - Validates `id` is a UUID (returns `notFound()` otherwise).
-  - Reads the project with `.eq('id', id).maybeSingle()`. RLS already restricts this to rows the current user owns; if the row isn't returned, the page returns 404.
-  - Renders all project fields with icons (GitHub / Demo / Wallet / Created).
-  - Shows an Agent Runs section with `EmptyState` and a `disabled` "Create Agent run" button (Day 3 territory).
+The Supabase email-confirmation flow is still being sorted out. To unblock product work, this build adds a **Dev Mode** that bypasses auth entirely and persists everything to `localStorage` instead.
 
-### Shared bits
+### Dev Mode
 
-- Added `src/types/project.ts` with `Project` and `NewProjectInput`.
-- Added `src/components/project-card.tsx` and `src/components/empty-state.tsx` for reuse.
-- Pulled in shadcn primitives: `Input`, `Label`, `Textarea`.
-- Verified `npm run build` passes (TypeScript + ESLint, App Router build, no secrets bundled).
+- New env flag `NEXT_PUBLIC_DEV_MODE`. When `true`:
+  - Middleware no longer protects `/dashboard`, `/projects/*`, or `/runs/*`.
+  - `/login` redirects straight to `/dashboard`.
+  - The navbar shows a `Dev Mode` badge instead of the auth CTA.
+  - All reads/writes go through `lib/storage.ts`, which uses `localStorage` keyed by `agenttrace.projects` / `agenttrace.runs` / `agenttrace.run_steps`.
+  - The current user is the constant `dev-user`.
+- Switching Dev Mode on:
+  - In `.env.local`: `NEXT_PUBLIC_DEV_MODE=true`
+  - Restart `npm run dev`. The Supabase keys can stay blank in Dev Mode — they aren't read.
+- **Important:** Dev Mode is for local development only. Set `NEXT_PUBLIC_DEV_MODE=false` (or remove the line) before shipping to production. With it on, anyone hitting `/dashboard` is treated as the same `dev-user` and Supabase RLS is bypassed entirely.
 
-### Out of scope (intentionally)
+### Real Project Management
 
-- Agent Run creation, real Trace Timeline, Task Receipt, AI summary, public share, tx hash parsing — these are explicitly Day 3+.
-- No service-role key in the client. All access is via the anon key + RLS.
+- `/dashboard` lists the current user's projects, with empty state and create CTA.
+- `/projects/new` creates projects (name required; description / GitHub / demo / wallet / chain optional).
+- `/projects/[id]` shows project detail and that project's runs.
 
-## Day 2.5 — Completed
+### Real Agent Run flow
 
-Day 2's Supabase email-confirmation flow is still wobbly. Rather than blocking on auth, this slice unblocks product work by making the app runnable without Supabase. Auth code stays — it's just bypassed in Dev Mode.
+- `/projects/[id]/runs/new` creates a run with all 8 canonical steps in one form:
+  - User Intent → Agent Plan → Tool Calls → Payment Request → Wallet Approval → On-chain Transaction → Verification → Final Result.
+  - Each step has its own status (`success / warning / failed / skipped`) and content.
+- `/runs/[id]` shows the run with a real `TraceTimeline` driven by the captured steps, plus a link back to the parent project.
 
-### Dev Mode flag
+### New components
 
-- Added `src/lib/dev-mode.ts` exporting `DEV_MODE` (read from `NEXT_PUBLIC_DEV_MODE === "true"`) and `DEV_USER_ID = "dev-user"`.
-- Updated `.env.example` to document the new flag.
-- `src/lib/supabase/middleware.ts` now short-circuits in Dev Mode — protected routes pass through, no Supabase call.
-- `/login` redirects straight to `/dashboard` in Dev Mode.
-- `Navbar` renders a "Dev Mode" badge in place of the user-email + sign-out controls when the flag is on.
-
-### Storage adapter
-
-- Added `src/lib/storage.ts` — a thin layer that, in Dev Mode, reads/writes `localStorage` (`agenttrace.projects`, `agenttrace.runs`, `agenttrace.run_steps`); in normal mode, calls Supabase via the existing browser/server clients.
-- Browser-side functions: `listProjectsBrowser`, `getProjectBrowser`, `createProjectBrowser`, `listRunsForProjectBrowser`, `createRunWithStepsBrowser`, `getRunBrowser`, `listStepsForRunBrowser`.
-- Server-side functions: `getServerUserId`, `listProjectsServer`, `getProjectServer` (used for non-Dev-Mode reads from Server Components — Day 3 wiring).
-- Records are timestamped with `crypto.randomUUID()` ids in Dev Mode.
-
-### Types
-
-- `src/types/project.ts` already in place (carried over from Day 2).
-- New `src/types/run.ts` with `Run`, `RunStep`, `RunStatus`, `RiskLevel`, `StepStatus`, `StepType`, plus the canonical 8-step `STEP_TEMPLATES` constant and the `RUN_STATUS_OPTIONS / RISK_LEVEL_OPTIONS / STEP_STATUS_OPTIONS` arrays used by the create form.
-
-### Pages
-
-- `/dashboard` rewritten as a thin Server Component that delegates to `DashboardClient` (Client Component). The Client uses `listProjectsBrowser`, so it works for both Dev Mode (localStorage) and Supabase.
-- `/projects/[id]` rewritten the same way, delegating to `ProjectDetailClient`. Now reads runs for the project and renders them as `RunCard` grid (or `EmptyState` if none).
-- `/projects/[id]/runs/new` — new Server Component page wrapping `NewRunForm`. The form has:
-  - `title` and `agent_name` (required), plus `status` and `risk_level` selects.
-  - All 8 canonical steps pre-rendered, each with its own status select + content textarea.
-  - Submits via `createRunWithStepsBrowser` and navigates to `/runs/<new run id>`.
-- `/runs/[id]` — new Server Component page wrapping `RunDetailClient`. Loads the run + steps + parent project from the storage adapter and renders:
-  - Run header with `StatusBadge`, `RiskBadge`, agent name, project link, created timestamp.
-  - `TraceTimeline` (real component, real data — replaces the mock timeline for run pages).
-
-### Components
-
-- `StatusBadge` and `RiskBadge` (color-coded badges driven by enum string).
-- `RunCard` (compact run summary used on the project detail page).
-- `TraceTimeline` + `TraceStep` (real timeline driven by `RunStep[]`, replaces what the mock version did for runs).
-- Existing `EmptyState`, `ProjectCard`, `StatsCard` reused unchanged.
-
-### Out of scope (intentionally)
-
-- Supabase email-confirmation fix.
-- Task Receipt, AI Summary, Public Share, tx-hash parsing.
-- Real x402 / MCP / Cobo integrations, payments.
-- A Day 3 SQL migration for `runs` and `run_steps` — the storage adapter wires up the Supabase branch already, but the migration itself is Day 3.
-
-### Verified
-
-- `npm run build` passes (TypeScript + ESLint, App Router, Turbopack).
-- Dev Mode flow: register-free; localStorage round-trips; refresh keeps data.
-
-## Day 3 — Completed
-
-Goal: turn each Agent Run into a structured, hashable receipt + a Markdown export. No new external services, no AI, no public share — all generation happens in the browser, all persistence goes through the existing storage adapter.
+- `ProjectCard`, `RunCard`, `TraceTimeline`, `TraceStep`, `EmptyState`, `StatusBadge`, `RiskBadge`.
 
 ### Types
 
-- `src/types/receipt.ts` — new file. Defines:
-  - `ReceiptJson` — versioned payload with `project` / `run` / `execution_trace` / `web3_context` / `verification` / `metadata`. The `execution_trace` exposes named slots (one per canonical step) and uses `mcp_tool_calls` instead of `tool_calls` so MCP semantics are explicit in the receipt.
-  - `ReceiptStep` — `{step_type, title, status, content, metadata?}`.
-  - `Receipt` — the persisted record (`id, run_id, project_id, receipt_json, receipt_hash, markdown_export, created_at, updated_at`).
-  - `RECEIPT_VERSION = "0.1.0"` constant — bumped whenever the JSON shape changes.
-- `src/types/run.ts` — added optional `metadata` to `RunStep` plus a `StepMetadata` shape (`mcp_server`, `tool_name`, `tool_input_summary`, `tool_output_summary`, `latency_ms`, free-form passthrough). Backwards-compatible: existing runs without `metadata` keep working.
+- `types/project.ts`, `types/run.ts` (with `STEP_TEMPLATES`, `RUN_STATUS_OPTIONS`, `RISK_LEVEL_OPTIONS`, `STEP_STATUS_OPTIONS`).
 
-### Generation (`src/lib/receipt.ts`)
+## Day 3 — Completed (Task Receipt + Markdown Export)
 
-Pure functions, no side effects:
+Each Agent Run can now produce a versioned, hashable receipt and a Markdown report.
 
-- `generateReceiptJson(run, project, steps)` — sorts steps by `order_index`, slots them into the named trace fields, copies project + run scalars, and pulls a `transaction_hash` for `web3_context` from the on-chain step (`metadata.transaction_hash` first, then `metadata.tx_hash` / `txHash` / `hash`, then a regex over `step.content` for `0x[a-fA-F0-9]{64}`).
-- `generateReceiptHash(json)` — SHA-256 via Web Crypto (`crypto.subtle.digest`), produced over a canonical stringification (recursively sorted keys) so the same logical receipt always hashes the same. Returns `sha256:<hex>`. No new dependency.
-- `generateMarkdownExport(json, hash)` — produces the human-readable report. The MCP / Tool Calls section auto-prepends MCP-related metadata fields (`MCP Server`, `Tool`, `Input`, `Output`, `Latency`) when they exist; otherwise only the step content is rendered.
-- `buildReceipt(run, project, steps)` — convenience: returns `{run_id, project_id, receipt_json, receipt_hash, markdown_export}` ready for storage.
+- New types in `src/types/receipt.ts`: `ReceiptJson`, `ReceiptStep`, `ReceiptExecutionTrace`, `Receipt`, plus a `RECEIPT_VERSION` constant (currently `0.1.0`).
+- `src/lib/receipt.ts` — pure functions for generation:
+  - `generateReceiptJson(run, project, steps)` builds the structured payload (project / run / 8-step `execution_trace` / `web3_context` / `verification` / `metadata`). The "Tool Calls" step is exposed as `mcp_tool_calls` so MCP usage is first-class.
+  - `generateReceiptHash(json)` returns `sha256:<hex>` over the canonical (sorted-keys) JSON via Web Crypto. No extra deps.
+  - `generateMarkdownExport(json, hash)` produces the human-readable export.
+  - `buildReceipt(run, project, steps)` is the convenience wrapper that returns `{receipt_json, receipt_hash, markdown_export}` ready for storage.
+- MCP-aware: if a step has `metadata` with `mcp_server`, `tool_name`, `tool_input_summary`, `tool_output_summary`, or `latency_ms`, those fields are surfaced in both the JSON receipt and the Markdown export. If `metadata` is missing, only `step.content` is shown — no breakage.
+- `transaction_hash` is auto-extracted from the on-chain step (`metadata.transaction_hash` first, otherwise the first `0x[64 hex]` substring in the step content).
+- Storage: `getReceiptForRunBrowser(runId)` and `saveReceiptBrowser(input)` in `src/lib/storage.ts`. In Dev Mode, receipts live under the `agenttrace.receipts` localStorage key. The Supabase branch upserts on `run_id`.
+- New `ReceiptPanel` on `/runs/[id]`:
+  - "Generate receipt" / "Regenerate receipt" button.
+  - Receipt hash shown as a `Badge`, with Copy.
+  - JSON receipt in a collapsible `<pre>` block, with Copy JSON.
+  - Markdown export in a `<pre>` block, with Copy Markdown.
+  - Toast feedback on success / error; auto-clears.
+  - Existing receipts are loaded automatically when the page is opened.
 
-### Storage
+## Day 4 — Completed (AI Summary, MCP-aware UI, Demo data, Transaction-to-Trace)
 
-- `src/lib/storage.ts` adds:
-  - `getReceiptForRunBrowser(runId)` — single-receipt lookup.
-  - `saveReceiptBrowser(input)` — upserts on `run_id` (one receipt per run; regenerate overwrites).
-  - In Dev Mode both functions read/write the new localStorage key `agenttrace.receipts`. Existing `projects/runs/run_steps` keys untouched.
-  - The Supabase branch (used when `NEXT_PUBLIC_DEV_MODE=false`) upserts into a `receipts` table on conflict `run_id`. The migration for that table is Day 4 — wired up here so flipping Dev Mode off later requires no extra code change.
+A receipt is now also explainable. Every run can produce a three-section AI summary (Run Summary / Technical Flow / Audit Notes) directly from the receipt JSON.
 
-### UI
+**Transaction-to-Trace (Alpha)**: Users can now import agent runs from existing blockchain transactions. Enter a transaction hash, and AgentTrace automatically fetches transaction data and uses AI to generate the full 8-step execution timeline, task receipt, and audit report.
 
-- New component `src/components/receipt-panel.tsx`:
-  - Loads any existing receipt on mount.
-  - Generate / Regenerate button with loading state.
-  - Hash shown as a copyable `Badge` (`sha256:…`).
-  - Collapsible JSON view (`<pre>`) + Copy JSON.
-  - Markdown export view (`<pre>`) + Copy Markdown.
-  - Toast feedback (success / error) auto-dismisses after ~3.5s.
-  - All copying goes through `navigator.clipboard.writeText`.
-- `src/app/runs/[id]/run-detail-client.tsx` mounts `<ReceiptPanel />` below the trace timeline (only when the parent project is loaded).
-- Visual style consistent with Day 2.5: `Card` shell, neutral muted backgrounds, monospace inline for hash + code blocks.
+- **Server-only AI route** at `src/app/api/ai-summary/route.ts`. The `AI_API_KEY` is read on the server only and never reaches the browser.
+- **`src/lib/ai-summary.ts`** with two paths:
+  - **AI path**: when `AI_API_KEY` is set, calls the Anthropic Messages API with a strict-JSON system prompt. Default model is `claude-haiku-4-5-20251001`; override with `AI_MODEL`.
+  - **Mock path**: when the key is missing _or_ the upstream call throws, builds a deterministic summary from the receipt JSON (intent + tool calls + payment / wallet / on-chain / verification + status / risk). The UI gets a uniform `ReceiptAiSummary` either way and shows a `Mock summary` badge plus a small disclaimer when the mock path is taken.
+- **Transaction-to-Trace feature**:
+  - **`src/lib/web3/transaction.ts`**: fetches transaction context from blockchain explorers (Base Sepolia, Ethereum Sepolia). Falls back to mock data when `NEXT_PUBLIC_BASESCAN_API_KEY` or `NEXT_PUBLIC_ETHERSCAN_API_KEY` is not configured.
+  - **`src/lib/ai-transaction-trace.ts`**: AI-powered transaction analyzer that generates structured 8-step timelines from transaction data. Uses `claude-sonnet-4-6-20250402` by default. Falls back to mock generator when `AI_API_KEY` is not set.
+  - **`/projects/[id]/runs/import-transaction`**: new import page where users enter chain + transaction hash + optional user intent/agent name. Clicking "Analyze Transaction" fetches transaction data, generates the timeline via AI, creates the run with 8 steps, auto-generates receipt, and redirects to run detail.
+  - **"Create from Transaction" button** added to project detail page alongside the manual "Create Agent run" button.
+  - **Run detail enhancements**: runs imported from transactions display a "Generated from Transaction" badge, transaction hash with explorer link, chain, and analysis source (AI vs Mock).
+  - **Receipt integration**: transaction context is embedded in receipt JSON metadata and markdown export, including transaction hash, chain, status, explorer link, and data source.
+- **`Receipt` gains `ai_summary`** (`run_summary`, `technical_flow`, `audit_notes`, `source: "ai" | "mock"`, `generated_at`). Regenerating the underlying receipt invalidates the prior summary so it always reflects the current snapshot.
+- **`SummaryPanel`** mounts on `/runs/[id]` below the `ReceiptPanel`:
+  - Tells the user to generate a receipt first when there isn't one.
+  - "Generate AI summary" / "Regenerate AI summary" with loading state and toast feedback.
+  - Renders the three sections with icons and a source badge (AI vs Mock).
+- **MCP-aware Trace Timeline**: the `tool_calls` step now renders a structured key/value card whenever `metadata` carries `mcp_server`, `tool_name`, `tool_input_summary`, `tool_output_summary`, or `latency_ms`. Steps without metadata fall back to the existing content rendering.
+- **Demo project loader**: the empty-state on `/dashboard` gains a `Load demo project` button. It writes a fully-populated demo project + run (`Wallet Risk Analysis with Paid Data API` on Base Sepolia, with MCP metadata on the tool-calls step and a transaction hash on the on-chain step) and routes to the project detail page (updated to show runs list).
+- **Dashboard stats**: the stats cards now show real counts from localStorage/Supabase for Projects, Agent Runs, and Receipts (previously hardcoded to 0).
+- **`NewRunStepInput` and the run insert path** now persist optional `metadata`, so any future creation flow can attach MCP / tx-hash metadata without another migration.
+- **`Run` type gains `metadata`** field to store transaction import context (transaction_hash, chain, analysis_source, generated_from_transaction flag).
 
-### MCP-aware behaviour
+## Day 5 — Completed (Public Proof-of-Execution Share Page)
 
-- If a `RunStep` has `metadata = { mcp_server, tool_name, tool_input_summary, tool_output_summary, latency_ms, … }`, those fields appear:
-  - In the JSON receipt as `execution_trace.mcp_tool_calls.metadata`.
-  - In the Markdown export as `- MCP Server: …`, `- Tool: …`, etc., before the step content.
-- If `metadata` is missing or empty, the receipt simply uses `step.content`. No breakage for runs created before Day 3.
+Agent Runs can now be made public and shared via a public link. Each public run gets a shareable proof-of-execution report that can be viewed by anyone without authentication — perfect for hackathon submissions, DevRel demos, and audit reviews.
 
-### Out of scope (intentionally)
+- **Public sharing controls** on `/runs/[id]`:
+  - "Make Public" button generates a unique public link
+  - "Copy Link" button with visual feedback
+  - "View Public Page" opens the public report in a new tab
+  - "Unpublish" removes public access
+- **Public ID generation**: each public run gets a stable, random `public_id` (format: `trace_<uuid>`) that doesn't expose internal database IDs
+- **Public trace page** at `/trace/[publicId]`:
+  - No authentication required
+  - Professional, external-facing report layout
+  - Displays: Executive Summary, Project Context, Execution Timeline, MCP/Tool Call Evidence, Transaction Context, AI Audit Report, Task Receipt
+  - Clean footer: "This proof-of-execution report was generated by AgentTrace"
+  - Mobile-friendly responsive design
+- **Run type enhancements**: added `is_public`, `public_id`, `published_at` fields with backward compatibility for existing runs
+- **Storage functions**: `updateRunPublicStatusBrowser(runId, isPublic, publicId)` and `getPublicRunBrowser(publicId)` for managing public runs
+- **Use cases**:
+  - Hackathon judges can review agent execution without accessing the dashboard
+  - DevRel teams can share agent traces in documentation
+  - Builders can prove on-chain transactions came from their agent workflow
+  - Audit trails for compliance and transparency
 
-- AI Summary of the run.
-- Public share page or shareable URL gating.
-- Real MCP SDK integration / real x402 / real Stripe.
-- Tx-hash auto-parsing beyond the regex fallback (no chain RPC calls).
-- Supabase email-confirmation fix.
+## Day 6 — Completed (Public Report Polish and Demo Shortcut)
 
-### Verified
+The Public Proof-of-Execution Report page is now a polished, externally-shareable artifact suitable for hackathon submissions and DevRel demos. Plus a one-click "Generate Demo Report" shortcut so reviewers can experience the full flow without filling out forms.
 
-- `npm run build` passes (TypeScript + ESLint, App Router + Turbopack).
-- Dev Mode: generate → hash + JSON + Markdown render; copy buttons populate clipboard; refresh keeps the receipt; regenerate overwrites in place.
+### Public Report Polish (`/trace/[publicId]`)
 
-## Day 4 — Completed
+The report is now structured for 30-second scanning by external reviewers:
 
-Goal: make every run explainable. Add an AI Summary that builds on the Day 3 receipt JSON, surface MCP / Tool Calls metadata in the timeline, and give a one-click demo so reviewers can see what the product produces without filling out two forms.
+- **Report Header** with title "AgentTrace Proof-of-Execution Report", a dynamic subtitle, and badges:
+  - Generated by AgentTrace
+  - Generated by AI Provider (when AI report is real) / Mock AI Report (when fallback)
+  - Generated from Transaction (when run came from Transaction-to-Trace)
+  - Chain badge (e.g. Base Sepolia)
+  - Status and risk level badges
+- **Overview Cards** (4 cards at top):
+  - Audit Readiness Score (with progress bar — color-coded by 80/60 thresholds)
+  - Data Source (Explorer API / Mock Fallback / Manual Input / Unknown)
+  - Evidence Status (Complete / X gaps found / Not checked)
+  - Receipt Status (Generated / Missing)
+- **Copy actions** at top: Copy Public Link, Copy Markdown, Copy Receipt Hash — all with check-icon feedback
+- **12 Report Sections** in canonical order:
+  1. Executive Summary
+  2. Project Context
+  3. Transaction Context
+  4. Execution Timeline
+  5. MCP / Tool Call Evidence
+  6. AI Audit Report
+  7. Evidence Gaps
+  8. Risk Flags
+  9. Suggested Improvements
+  10. Task Receipt
+  11. Markdown Export
+  12. Footer
+- **Graceful empty states** for every section when data is missing
+- **Address truncation** for transaction hashes and wallet addresses
+- **Mobile responsive** layout
 
-### AI Summary
+### Demo Report Shortcut
 
-- New server-only route `src/app/api/ai-summary/route.ts`. Accepts `{receipt_json}` and returns a `ReceiptAiSummary`. The `AI_API_KEY` is read on the server only — never reaches the client bundle.
-- New `src/lib/ai-summary.ts` (`import "server-only"`):
-  - `generateAiSummary(receiptJson, options)` is the single entrypoint. If `AI_API_KEY` is missing it returns a mock summary. If the key is present it calls the Anthropic Messages API with a strict-JSON system prompt; on any upstream failure it falls back to the mock so the UI never errors.
-  - Default model `claude-haiku-4-5-20251001`. Overridable via `AI_MODEL`.
-  - Mock path is deterministic — pulls intent, MCP fields, payment / wallet / on-chain / verification content from the receipt JSON.
-- `.env.example` documents `AI_API_KEY` + `AI_MODEL` and explicitly says blank is fine (mock fallback).
+- **"Generate Demo Report" button** on landing page, dashboard, and dashboard empty state
+- **One click** automatically creates demo project, run, steps, receipt, AI audit report, and redirects to public report
+- **Idempotent**: reuses existing demo project/run instead of creating duplicates
+- **Persistent**: demo report survives page refreshes (localStorage)
 
-### Receipt type changes
+### Extended `ReceiptAiSummary` type
 
-- `ReceiptAiSummary = {run_summary, technical_flow, audit_notes, source, generated_at}` added in `src/types/receipt.ts`.
-- `Receipt` now includes `ai_summary: ReceiptAiSummary | null`.
-- `lib/storage.ts`:
-  - New `updateReceiptSummaryBrowser(runId, summary)` — writes the AI summary onto the existing receipt (one summary per run).
-  - `saveReceiptBrowser` now resets `ai_summary` to `null` on regeneration so a stale summary never describes a newer receipt.
-  - Localstorage key remains `agenttrace.receipts`.
+Backward-compatible additions:
+- `executive_summary?: string`
+- `missing_evidence?: string[]`
+- `risk_flags?: { level: "low" | "medium" | "high"; item: string }[]`
+- `suggested_improvements?: string[]`
+- `audit_readiness_score?: number`
 
-### MCP-aware Trace Timeline
+## Day 7 — Completed (Trust & API Readiness Polish)
 
-- `RunStep` already had optional `metadata` (Day 3). `NewRunStepInput` and `createRunWithStepsBrowser` now persist it through both the Dev Mode and Supabase branches, so creation flows can attach MCP / tx-hash data.
-- `src/components/trace-step.tsx`:
-  - When the `tool_calls` step has any of `mcp_server`, `tool_name`, `tool_input_summary`, `tool_output_summary`, `latency_ms`, the timeline renders a structured `<dl>` card above the content.
-  - Steps without metadata fall back to the existing content rendering — no breakage for older runs.
+The Public Proof-of-Execution Report now makes the difference between Demo Mode and Live Mode obvious to external readers.
 
-### Run Detail page
+- **Data Source & Trust Level card** on `/trace/[publicId]`:
+  - Transaction Data Source: Mock Fallback / Explorer API / Manual Input / Unknown
+  - AI Report Source: Mock AI Report / Generated by AI Provider / Not generated
+  - Verification Level: Demo Mode / Basic Verified / Explorer Verified
+  - Receipt Source: Generated by AgentTrace / Missing
+  - Report Mode: Demo Mode / Live Mode / Mixed Mode
+- **Mode notices**:
+  - Mock Transaction Data notice
+  - Mock AI Audit Report notice
+  - Demo Mode notice (unified when both are mock)
+- **How to Read This Report** — 5-item explainer for external readers
+- **Alpha Notice** — transparent statement about current support vs. planned features
+- **API Readiness card** — lists env vars with what each enables
+- **Refined Overview Cards** — replaced "Evidence Status" and "Receipt Status" with "AI Source" and "Verification" cards
+- **`src/lib/trust-level.ts`** — pure function `deriveTrustLevel(run, receipt, txContext)` that drives trust labels
+- **Landing page**:
+  - Hint under hero buttons about Demo Mode vs Live Mode
+  - Three-card section highlighting mock fallback, API-ready architecture, and transparent labeling
+- **Dashboard**: banner reminding users about Demo Mode
 
-- `src/app/runs/[id]/run-detail-client.tsx` now owns the `Receipt` state and passes it down to both panels:
-  - `ReceiptPanel` is now controlled (`receipt`, `onReceiptChange`).
-  - `SummaryPanel` reads the same receipt and writes the `ai_summary` back via `updateReceiptSummaryBrowser`.
-  - Both panels stay in sync without a refetch.
-- `SummaryPanel` (`src/components/summary-panel.tsx`):
-  - `Generate AI summary` / `Regenerate AI summary` button.
-  - "Generate a receipt first" empty state when there's no receipt yet.
-  - Renders the three sections (Run summary, Technical flow, Audit notes) with icons.
-  - Source badge — `AI generated` (emerald) vs `Mock summary` (amber). When mock, shows a one-line disclaimer that `AI_API_KEY` is not configured.
-  - Toast feedback (success / error) auto-dismisses after ~3.5s.
+## Day 8 — Completed (Provider-Agnostic AI Integration)
 
-### Demo data
+Refactored AI integration from provider-specific to a pluggable, provider-agnostic architecture. Replaced all Z.ai-specific product messaging with generic AI provider messaging.
 
-- New `src/lib/demo-data.ts`:
-  - `loadDemoProject()` creates the Day 4 demo project (`Agent Payment Demo` on Base Sepolia, wallet `0x1234…5678`) and a fully populated run (`Wallet Risk Analysis with Paid Data API`) with all 8 canonical steps. The tool-calls step carries MCP metadata; the on-chain step carries a `transaction_hash`.
-  - Uses the existing `createProjectBrowser` / `createRunWithStepsBrowser` adapters, so it works in both Dev Mode and Supabase mode.
-- Dashboard empty-state now offers a `Load demo project` button next to `Create project`. Click → demo is written → router pushes straight to the demo run's detail page.
+### AI Provider Architecture
 
-### UI polish
+- **New provider layer** at `src/lib/ai/`:
+  - `types.ts` — unified `AIProvider` interface, `AIAuditReportInput`, `AIAuditReport` types
+  - `providers/index.ts` — unified entry point `generateAIAuditReport()` that routes based on `AI_PROVIDER` env var
+  - `providers/mock.ts` — deterministic mock provider (no API calls)
+  - `providers/claude-compatible.ts` — third-party Claude-compatible API provider using OpenAI-compatible format
+- **Provider routing**:
+  - `AI_PROVIDER=mock` (default) → uses mock provider
+  - `AI_PROVIDER=claude_compatible` → uses Claude-compatible provider
+  - Automatic fallback to mock if API key missing or call fails
+- **Claude-compatible provider**:
+  - Reads `CLAUDE_COMPATIBLE_API_KEY`, `CLAUDE_COMPATIBLE_API_BASE`, `CLAUDE_COMPATIBLE_MODEL`
+  - Uses OpenAI-compatible chat completions format (most third-party Claude APIs use this)
+  - Safe URL joining to avoid duplicate `/v1` or slashes
+  - Graceful error handling with mock fallback
+  - JSON extraction from response with fallback
 
-- Empty-state CTA layout updated for two buttons.
-- Receipt + AI summary panels stacked under the Trace timeline with consistent spacing.
-- MCP metadata renders as a `<dl>` grid (label / monospace value), not a code block, so it reads as structured data.
+### Environment Variables
 
-### Out of scope (intentionally)
+- **Updated `.env.example`**:
+  - Removed old `AI_API_KEY`, `AI_MODEL`
+  - Added `AI_PROVIDER`, `CLAUDE_COMPATIBLE_API_KEY`, `CLAUDE_COMPATIBLE_API_BASE`, `CLAUDE_COMPATIBLE_MODEL`
+  - All AI config is server-only (never exposed to browser)
 
-- Public share page for receipts.
-- Real MCP SDK or x402 integration.
-- Real chain RPC calls or tx-hash auto-resolution beyond the Day 3 regex fallback.
-- Stripe / payments.
-- Supabase email-confirmation fix.
-- Team / org permissions.
+### Product Messaging Refactor
 
-### Verified
+- **Removed all Z.ai references** from:
+  - Landing page (`src/app/page.tsx`)
+  - Dashboard (`src/app/dashboard/dashboard-client.tsx`)
+  - Public report page (`src/app/trace/[publicId]/public-trace-client.tsx`)
+  - Trust level logic (`src/lib/trust-level.ts`)
+  - README.md
+  - BUILD_LOG.md (this file)
+- **New messaging**:
+  - "AI Provider" instead of "Z.ai"
+  - "Generated by Claude-compatible API" badge when source is `claude_compatible`
+  - "Generated by AI Provider" badge when source is `ai`
+  - "Configure an AI provider" in help text
+  - "Pluggable AI provider" in feature descriptions
 
-- `npm run build` passes (TypeScript + ESLint, App Router + Turbopack); the new `/api/ai-summary` route shows up in the route table.
-- `npm run lint` clean.
-- Dev Mode: load demo → see MCP metadata card in the timeline; generate receipt → hash + JSON + Markdown all populate; generate AI summary without `AI_API_KEY` → renders with `Mock summary` badge + disclaimer; refresh keeps everything; regenerating the receipt clears the AI summary so the next click rebuilds it from the fresh JSON.
+### README Updates
 
-## Product Direction
+- **New "AI Provider Configuration" section** explaining pluggable providers
+- Updated API Configuration table with new env vars
+- Removed Z.ai-specific setup instructions
+- Added Claude-compatible API provider examples
 
-AgentTrace targets Web3 AI Agent builders who need an honest record of what their Agents actually did. A single Agent run can fan out into multiple LLM calls, tool calls, off-chain payments and on-chain transactions; today none of that is visible to the end user or auditable after the fact.
+### Type System Updates
 
-The product produces two things from each Agent run:
+- **`AIReportSource` type** now includes:
+  - `"Generated by AI Provider"`
+  - `"Generated by Claude-compatible API"`
+  - `"Mock AI Report"`
+  - `"Not generated"`
+- **Trust level computation** updated to recognize `claude_compatible` and `anthropic` sources as live
+- **Public report badges** updated to show provider-agnostic labels
 
-1. **A structured execution trace** — eight well-defined step types, replayable in order, with timestamps, inputs and outputs.
-2. **A portable Task Receipt** — a sharable URL (and exportable JSON) that proves what was intended, signed and landed on-chain.
+### Safety & Best Practices
 
-Day 2 turns the mock dashboard into a real per-user workspace. Days 3+ start writing real Agent run data into Supabase and replacing the mock trace timeline.
+- API keys never exposed to frontend
+- All AI calls are server-side only
+- Graceful degradation to mock on any failure
+- Consistent audit report structure across all providers
+- Clear labeling of data sources in UI
 
-## Next Step
+### Notes
 
-- **Day 5 plan**:
-  - Add `runs`, `run_steps`, and `receipts` tables to `supabase/schema.sql` with RLS gated to `auth.uid()`. Receipts FK to `runs(id)`; runs FK to `projects(id)`. `receipts.ai_summary` jsonb. Drop the localStorage fallback for users who flip Dev Mode off.
-  - Fix the Supabase email-confirmation round-trip (Site URL + Redirect URL config + the `/auth/callback` handler) so non-Dev-Mode signed-in flows actually land.
-- Still **out of scope** for Day 5: public share, tx hash auto-parsing via RPC, real MCP SDK, payments.
+- Historical Z.ai references in old BUILD_LOG day entries preserved for historical record
+- No breaking changes to existing runs or receipts
+- Mock provider remains fully functional as default
+- Future providers (Anthropic direct, OpenAI, etc.) can be added by implementing the `AIProvider` interface
+
+## Day 9 — README Product Documentation Rewrite
+
+- Rewrote README from development log style into product documentation
+- Clarified AgentTrace positioning as a Proof-of-Execution platform for Web3 AI agents
+- Added Problem, Solution, Key Features, Demo Flow, Tech Stack, Configuration, Limitations and Roadmap sections
+- Removed Z.ai-specific messaging from README
+- Added AI provider and explorer API configuration guidance
+- Added submission link placeholders for hackathon submission
+- README now serves as a product spec for hackathon judges, builders, and DevRel teams instead of a learning notebook

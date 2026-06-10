@@ -23,6 +23,18 @@ export type Run = {
   risk_level: RiskLevel;
   created_at: string;
   updated_at: string;
+  metadata?: RunMetadata | null;
+  is_public?: boolean;
+  public_id?: string | null;
+  published_at?: string | null;
+};
+
+export type RunMetadata = {
+  generated_from_transaction?: boolean;
+  transaction_hash?: string;
+  transaction_chain?: string;
+  analysis_source?: "ai" | "mock";
+  [key: string]: unknown;
 };
 
 export type StepMetadata = {
@@ -99,4 +111,5 @@ export type NewRunInput = {
   status: RunStatus;
   risk_level: RiskLevel;
   steps: NewRunStepInput[];
+  metadata?: RunMetadata | null;
 };

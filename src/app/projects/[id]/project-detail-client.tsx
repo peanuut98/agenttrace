@@ -11,6 +11,7 @@ import {
   Layers,
   Loader2,
   Plus,
+  Sparkles,
   Wallet,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -182,25 +183,41 @@ export function ProjectDetailClient({ projectId }: { projectId: string }) {
               and on-chain results.
             </p>
           </div>
-          <Button asChild>
-            <Link href={`/projects/${project.id}/runs/new`}>
-              <Plus className="size-4" />
-              Create Agent run
-            </Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline">
+              <Link href={`/projects/${project.id}/runs/import-transaction`}>
+                <Sparkles className="size-4" />
+                Create from Transaction
+              </Link>
+            </Button>
+            <Button asChild>
+              <Link href={`/projects/${project.id}/runs/new`}>
+                <Plus className="size-4" />
+                Create Agent run
+              </Link>
+            </Button>
+          </div>
         </div>
 
         {runs.length === 0 ? (
           <EmptyState
             title="No agent runs yet."
-            description="Create your first run to start tracing this project."
+            description="Create your first run to start tracing this project, or import one from an existing transaction."
             action={
-              <Button asChild>
-                <Link href={`/projects/${project.id}/runs/new`}>
-                  <Plus className="size-4" />
-                  Create Agent run
-                </Link>
-              </Button>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button asChild>
+                  <Link href={`/projects/${project.id}/runs/new`}>
+                    <Plus className="size-4" />
+                    Create Agent run
+                  </Link>
+                </Button>
+                <Button asChild variant="outline">
+                  <Link href={`/projects/${project.id}/runs/import-transaction`}>
+                    <Sparkles className="size-4" />
+                    Import from Transaction
+                  </Link>
+                </Button>
+              </div>
             }
           />
         ) : (

@@ -104,6 +104,16 @@ export function generateReceiptJson(
 
   const verifyStep = trace.verification;
 
+  // Extract transaction context from run metadata if available
+  const isFromTransaction = run.metadata?.generated_from_transaction === true;
+  const transactionContext = isFromTransaction
+    ? {
+        transaction_hash: (run.metadata?.transaction_hash as string) ?? null,
+        chain: (run.metadata?.transaction_chain as string) ?? null,
+        analysis_source: (run.metadata?.analysis_source as string) ?? null,
+      }
+    : null;
+
   return {
     receipt_id: options?.receiptId ?? newId(),
     project: {
@@ -126,7 +136,7 @@ export function generateReceiptJson(
     web3_context: {
       chain: project.chain,
       wallet_address: project.wallet_address,
-      transaction_hash: pickTransactionHash(ordered),
+      transaction_hash: transactionContext?.transaction_hash ?? pickTransactionHash(ordered),
     },
     verification: {
       status: verifyStep ? verifyStep.status : "unknown",
@@ -135,6 +145,9 @@ export function generateReceiptJson(
     metadata: {
       generated_at: options?.generatedAt ?? new Date().toISOString(),
       version: RECEIPT_VERSION,
+      ...(transactionContext && {
+        transaction_context: transactionContext,
+      }),
     },
   };
 }
@@ -230,6 +243,24 @@ export function generateMarkdownExport(
   lines.push(
     `- Transaction Hash: ${valueOrDash(web3_context.transaction_hash)}`,
   );
+
+  // Add transaction context section if available
+  const txContext = (metadata as any).transaction_context;
+  if (txContext) {
+    lines.push("");
+    lines.push("### Transaction Context");
+    lines.push(`- Chain: ${txContext.chain ?? "—"}`);
+    lines.push(`- Tx Hash: ${txContext.transaction_hash ?? "—"}`);
+    lines.push(`- Analysis Source: ${txContext.analysis_source === "ai" ? "AI Generated" : "Mock Fallback"}`);
+    if (web3_context.transaction_hash) {
+      const explorerUrls: Record<string, string> = {
+        "Base Sepolia": "https://sepolia.basescan.org",
+        "Ethereum Sepolia": "https://sepolia.etherscan.io",
+      };
+      const baseUrl = explorerUrls[txContext.chain] ?? "https://sepolia.basescan.org";
+      lines.push(`- Explorer: ${baseUrl}/tx/${web3_context.transaction_hash}`);
+    }
+  }
   lines.push("");
 
   lines.push("## Verification");
