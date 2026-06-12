@@ -84,6 +84,10 @@ Reports clearly label whether data comes from:
 
 AgentTrace works in Demo Mode without API keys, while also supporting live API configuration.
 
+### On-chain Proof Registration (Base Sepolia)
+
+A minimal `AgentTraceProofRegistry` contract can anchor a receipt hash on-chain via a single, manually-confirmed transaction. The contract holds no funds and only emits a `ProofRegistered` event. Transaction analysis remains the responsibility of Transaction-to-Trace; this anchor only adds an independently-verifiable on-chain reference for the off-chain report. See [`docs/WEB3_PROOF.md`](./docs/WEB3_PROOF.md) and [`docs/CONTRACT_DEPLOYMENT.md`](./docs/CONTRACT_DEPLOYMENT.md).
+
 ## Demo Flow
 
 1. Open AgentTrace.
@@ -157,6 +161,25 @@ BASESCAN_API_KEY=
 ```
 
 If explorer keys are not configured, AgentTrace uses mock fallback transaction data for demo purposes.
+
+## On-chain Proof Registration
+
+AgentTrace ships a minimal contract, `AgentTraceProofRegistry`, that anchors the off-chain receipt hash to a public on-chain event log. The contract is intentionally narrow:
+
+- It **does not** automatically scrape on-chain transactions. Transaction context is collected by the Transaction-to-Trace flow.
+- It **does not** automatically analyse agent runs. AI Audit Reports come from the configured AI provider.
+- It **does not** sign anything on the user's behalf. Every registration requires manual wallet confirmation.
+- It **does not** hold or transfer funds. There is no admin and no upgrade path.
+
+```env
+NEXT_PUBLIC_PROOF_REGISTRY_ADDRESS=
+```
+
+After deploying `contracts/AgentTraceProofRegistry.sol` to Base Sepolia (see [`docs/CONTRACT_DEPLOYMENT.md`](./docs/CONTRACT_DEPLOYMENT.md)), set this env var to the deployed contract address. The contract address is public — it is safe to ship as `NEXT_PUBLIC_*`.
+
+In dev mode the Public Report shows a **Register Proof On-chain** button. The user's wallet must manually confirm a `registerProof(bytes32 receiptHash, string publicReportUrl)` call. The resulting transaction hash and BaseScan link are then displayed alongside the receipt.
+
+For full safety boundaries and verification instructions, see [`docs/WEB3_PROOF.md`](./docs/WEB3_PROOF.md).
 
 ## Local Development
 

@@ -68,7 +68,7 @@ export type ReceiptAiSummary = {
   run_summary: string;
   technical_flow: string;
   audit_notes: string;
-  source: "mock" | "ai" | "claude_compatible";
+  source: "mock" | "ai" | "z_ai" | "claude_compatible";
   generated_at: string;
   // Optional Day 6 fields — backward compatible.
   executive_summary?: string;
@@ -76,6 +76,31 @@ export type ReceiptAiSummary = {
   risk_flags?: RiskFlag[];
   suggested_improvements?: string[];
   audit_readiness_score?: number;
+  // Day 10/11: model name and structured fallback diagnostics.
+  model?: string;
+  fallback_reason?: string;
+  fallback_detail?: string;
+  attempted_provider?: string;
+  attempted_model?: string;
+};
+
+export type ProofRegistration = {
+  /** EVM contract address that emitted the ProofRegistered event */
+  contract_address: string;
+  /** Transaction hash of the registerProof() call */
+  tx_hash: string;
+  /** Numeric chain id (84532 for Base Sepolia) */
+  chain_id: number;
+  /** Human-readable chain label, e.g. "Base Sepolia" */
+  chain: string;
+  /** ISO timestamp when the tx was submitted by the wallet */
+  submitted_at: string;
+  /** Wallet address that submitted the tx (msg.sender on-chain) */
+  submitter_address: string;
+  /** Public BaseScan / explorer URL for this tx */
+  explorer_url: string;
+  /** "submitted" right after wallet confirmation; later upgradeable to "confirmed" */
+  status: "submitted" | "confirmed";
 };
 
 export type Receipt = {
@@ -86,6 +111,7 @@ export type Receipt = {
   receipt_hash: string;
   markdown_export: string;
   ai_summary: ReceiptAiSummary | null;
+  proof_registration?: ProofRegistration | null;
   created_at: string;
   updated_at: string;
 };

@@ -13,7 +13,7 @@ import { DEV_MODE, DEV_USER_ID } from "@/lib/dev-mode";
 import { createClient as createBrowserSupabase } from "@/lib/supabase/client";
 import type { NewProjectInput, Project } from "@/types/project";
 import type { NewRunInput, Run, RunStep } from "@/types/run";
-import type { Receipt, ReceiptAiSummary, ReceiptJson } from "@/types/receipt";
+import type { Receipt, ReceiptAiSummary, ReceiptJson, ProofRegistration } from "@/types/receipt";
 
 const PROJECTS_KEY = "agenttrace.projects";
 const RUNS_KEY = "agenttrace.runs";
@@ -418,6 +418,47 @@ export async function updateReceiptSummaryBrowser(
     .single();
   if (error || !data) {
     throw error ?? new Error("Failed to save AI summary.");
+  }
+  return data as Receipt;
+}
+
+/**
+ * Save the on-chain proof registration metadata for an existing receipt.
+ * Called after the user manually confirms the registerProof() transaction
+ * in their wallet. Never holds private keys; this is metadata only.
+ */
+export async function saveProofRegistrationBrowser(
+  runId: string,
+  registration: ProofRegistration,
+): Promise<Receipt> {
+  const now = nowIso();
+
+  if (DEV_MODE) {
+    const all = readArray<Receipt>(RECEIPTS_KEY);
+    const idx = all.findIndex((r) => r.run_id === runId);
+    if (idx === -1) {
+      throw new Error("No receipt to attach a proof registration to.");
+    }
+    const next: Receipt = {
+      ...all[idx],
+      proof_registration: registration,
+      updated_at: now,
+    };
+    const nextAll = [...all];
+    nextAll[idx] = next;
+    writeArray(RECEIPTS_KEY, nextAll);
+    return next;
+  }
+
+  const supabase = createBrowserSupabase();
+  const { data, error } = await supabase
+    .from("receipts")
+    .update({ proof_registration: registration })
+    .eq("run_id", runId)
+    .select("*")
+    .single();
+  if (error || !data) {
+    throw error ?? new Error("Failed to save proof registration.");
   }
   return data as Receipt;
 }
